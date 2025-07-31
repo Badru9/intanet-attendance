@@ -18,10 +18,17 @@ import {
   View,
 } from 'react-native';
 
-// Import UserType jika belum
-import { UserType } from '../../types/index'; // Pastikan path ini benar
-// Import DESIGN_TOKENS yang baru dibuat
-import { DESIGN_TOKENS } from '../../constants/designTokens'; // Adjust path as needed
+// Import UserType
+import { UserType } from '../../types/index';
+// Import DESIGN_TOKENS
+import { DESIGN_TOKENS } from '../../constants/designTokens';
+// Import attendance service
+import { attendance } from '../../../services/attendance'; // Adjust path if necessary
+// Import callback store
+import {
+  clearCaptureCallback,
+  setCaptureCallback,
+} from '../../utils/callbackStore';
 
 // Latar belakang yang sama untuk konsistensi
 const BACKGROUND_IMAGE_URI =
@@ -34,7 +41,8 @@ export default function Home() {
   const [currentTime, setCurrentTime] = useState<string>('');
   const [attendanceStatus, setAttendanceStatus] = useState<
     'clock_in' | 'clock_out' | null
-  >(null); // To track current state
+  >(null); // 'clock_in' means already clocked in today, 'clock_out' means not yet
+  const [isProcessingAttendance, setIsProcessingAttendance] = useState(false); // State for loading/processing
 
   const { getItem } = useAsyncStorage('user');
 
@@ -51,20 +59,31 @@ export default function Home() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Load user data
-    const loadUser = async () => {
+    const loadUserAndAttendanceStatus = async () => {
       try {
         const jsonValue = await getItem();
         if (jsonValue != null) {
           const userData: UserType = JSON.parse(jsonValue);
           setUser(userData);
+          // TODO: Di sini, Anda perlu memuat status presensi pengguna untuk hari ini dari API backend.
+          // Contoh: panggil API `/api/attendances/today-status`
+          // Jika ada record presensi hari ini, set attendanceStatus('clock_in').
+          // Jika tidak ada atau record menunjukkan belum check-in, set attendanceStatus('clock_out').
+          // Untuk demonstrasi, kita akan default ke 'clock_out'.
+          setAttendanceStatus('clock_out'); // Default: pengguna belum clock in.
+        } else {
+          // User data not found, maybe redirect to login?
+          // router.replace('/auth/login');
         }
       } catch (e) {
-        console.error('Failed to load user from async storage', e);
+        console.error(
+          'Failed to load user or attendance status from async storage',
+          e
+        );
+        // Handle error, e.g., show alert and redirect to login
       }
     };
 
-    // Update time every second
     const updateDateTime = () => {
       const now = new Date();
       setCurrentDate(
@@ -85,11 +104,10 @@ export default function Home() {
       );
     };
 
-    loadUser();
-    updateDateTime(); // Initial call
-    const intervalId = setInterval(updateDateTime, 1000); // Update every second
+    loadUserAndAttendanceStatus();
+    updateDateTime();
+    const intervalId = setInterval(updateDateTime, 1000);
 
-    // Start entrance animations
     Animated.sequence([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -116,39 +134,72 @@ export default function Home() {
     ]).start();
 
     return () => clearInterval(intervalId); // Cleanup interval
-  }, [getItem]);
+  }, []); // Add getItem to dependencies if it's not stable across renders
 
   // --- Handlers for main features ---
 
   const handlePresence = async () => {
-    Alert.alert(
-      'Konfirmasi Presensi',
-      `Anda akan melakukan ${attendanceStatus === 'clock_in' ? 'Clock Out' : 'Clock In'} sekarang?`,
-      [
-        {
-          text: 'Batal',
-          style: 'cancel',
-        },
-        {
-          text: 'Ya, Lanjutkan',
-          onPress: async () => {
-            // TODO: Integrate with your backend API for attendance
-            // Example: const response = await attendanceApi.record({ type: 'clock_in' });
-            // For now, simulate success
-            console.log(
-              `User ${user?.name} performing ${attendanceStatus === 'clock_in' ? 'Clock Out' : 'Clock In'}`
-            );
-            setAttendanceStatus((prev) =>
-              prev === 'clock_in' ? 'clock_out' : 'clock_in'
-            ); // Toggle status
-            Alert.alert(
-              'Sukses',
-              `Presensi ${attendanceStatus === 'clock_in' ? 'Clock Out' : 'Clock In'} berhasil!`
-            );
-          },
-        },
-      ]
-    );
+    // Disable interaction if already processing
+    if (isProcessingAttendance) {
+      return;
+    }
+
+    // Logic for preventing multiple clock-ins
+    // Based on your Laravel controller, it only allows one check-in per day.
+    // So, if attendanceStatus is 'clock_in', we prevent further clock-ins.
+    if (attendanceStatus === 'clock_in') {
+      Alert.alert(
+        'Sudah Absen',
+        'Anda sudah melakukan absensi hari ini. Tidak bisa melakukan Clock In lagi.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    // This is the callback function that will be executed after photo/location capture
+    // in AttendanceCameraScreen.
+    const onCaptureData = async (
+      photoUri: string,
+      locationString: string,
+      notes: string | null
+    ) => {
+      setIsProcessingAttendance(true); // Set loading true while sending to API
+      try {
+        const attendanceData = {
+          location_check_in: locationString,
+          photo_check_in: photoUri,
+          notes: notes,
+        };
+
+        // Call the attendance service
+        const response = await attendance(attendanceData);
+
+        if (response.success) {
+          setAttendanceStatus('clock_in'); // Update status to reflect successful clock-in
+          Alert.alert('Sukses', response.message || 'Presensi berhasil!');
+        } else {
+          Alert.alert(
+            'Gagal Presensi',
+            response.message || 'Terjadi kesalahan saat presensi.'
+          );
+        }
+      } catch (error: any) {
+        console.error('Error sending attendance data:', error);
+        Alert.alert(
+          'Error Presensi',
+          error.message || 'Terjadi kesalahan tidak terduga saat presensi.'
+        );
+      } finally {
+        setIsProcessingAttendance(false); // Reset loading state
+        clearCaptureCallback(); // Clear the callback from the store after execution
+      }
+    };
+
+    // Before navigating to the camera screen, set the callback in the store.
+    setCaptureCallback(onCaptureData);
+
+    // Navigate to the camera screen. No need to pass params directly.
+    router.push('/(tabs)/main/attendance/camera');
   };
 
   const handleLeaveRequest = () => {
@@ -207,7 +258,7 @@ export default function Home() {
               opacity: fadeAnim,
               transform: [{ translateY: headerAnim }],
               marginBottom: DESIGN_TOKENS.spacing.xl,
-              marginTop: DESIGN_TOKENS.spacing.md, // Adjusted for better visual
+              marginTop: DESIGN_TOKENS.spacing.md,
             }}
           >
             <Text
@@ -299,23 +350,30 @@ export default function Home() {
                 >
                   Status:{' '}
                   {attendanceStatus === 'clock_in'
-                    ? 'Sudah Clock In'
-                    : 'Belum Clock In'}
+                    ? 'Sudah Melakukan Absensi'
+                    : 'Belum Melakukan Absensi'}
                 </Text>
               </View>
 
               <TouchableOpacity
                 onPress={handlePresence}
                 activeOpacity={0.8}
+                disabled={
+                  isProcessingAttendance || attendanceStatus === 'clock_in'
+                } // Disable if processing OR already clocked in
                 style={{
                   borderRadius: DESIGN_TOKENS.borderRadius.md,
-                  overflow: 'hidden', // Ensures gradient is clipped
+                  overflow: 'hidden',
+                  opacity:
+                    isProcessingAttendance || attendanceStatus === 'clock_in'
+                      ? 0.7
+                      : 1, // Visual feedback when disabled
                 }}
               >
                 <LinearGradient
                   colors={
                     attendanceStatus === 'clock_in'
-                      ? ['#FF3B30', '#CC2D2D']
+                      ? ['#FF3B30', '#CC2D2D'] // Red for already clocked in
                       : [DESIGN_TOKENS.colors.primary, '#0056CC']
                   }
                   start={{ x: 0, y: 0 }}
@@ -332,21 +390,34 @@ export default function Home() {
                     elevation: 6,
                   }}
                 >
-                  <Feather
-                    name={
-                      attendanceStatus === 'clock_in' ? 'log-out' : 'log-in'
-                    }
-                    size={20}
-                    color={DESIGN_TOKENS.colors.textOnButton}
-                    style={{ marginRight: DESIGN_TOKENS.spacing.sm }}
-                  />
+                  {isProcessingAttendance ? (
+                    <Feather
+                      name='loader'
+                      size={20}
+                      color={DESIGN_TOKENS.colors.textOnButton}
+                      style={{ marginRight: DESIGN_TOKENS.spacing.sm }}
+                    />
+                  ) : (
+                    <Feather
+                      name={
+                        attendanceStatus === 'clock_in' ? 'check' : 'log-in' // Show check icon if already clocked in
+                      }
+                      size={20}
+                      color={DESIGN_TOKENS.colors.textOnButton}
+                      style={{ marginRight: DESIGN_TOKENS.spacing.sm }}
+                    />
+                  )}
                   <Text
                     style={{
                       ...DESIGN_TOKENS.typography.button,
                       color: DESIGN_TOKENS.colors.textOnButton,
                     }}
                   >
-                    {attendanceStatus === 'clock_in' ? 'Clock Out' : 'Clock In'}
+                    {isProcessingAttendance
+                      ? 'Memproses...'
+                      : attendanceStatus === 'clock_in'
+                        ? 'Sudah Absen Hari Ini'
+                        : 'Clock In'}
                   </Text>
                 </LinearGradient>
               </TouchableOpacity>
@@ -443,7 +514,7 @@ export default function Home() {
           <Animated.View
             style={{
               opacity: fadeAnim,
-              transform: [{ translateY: card2Anim }], // Reuse same animation for now
+              transform: [{ translateY: card2Anim }],
             }}
           >
             <BlurView
@@ -482,10 +553,10 @@ export default function Home() {
                 {/* Example Feature Button */}
                 <TouchableOpacity
                   style={{
-                    width: '48%', // Approx half width with spacing
+                    width: '48%',
                     marginBottom: DESIGN_TOKENS.spacing.md,
                     borderRadius: DESIGN_TOKENS.borderRadius.md,
-                    backgroundColor: DESIGN_TOKENS.colors.glassInputBg, // Lighter glass background
+                    backgroundColor: DESIGN_TOKENS.colors.glassInputBg,
                     borderWidth: 0.5,
                     borderColor: DESIGN_TOKENS.colors.glassBorder,
                     padding: DESIGN_TOKENS.spacing.md,
