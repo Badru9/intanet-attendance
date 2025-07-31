@@ -2,13 +2,14 @@ import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Link, useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react'; // Menambahkan useEffect
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
-  ImageBackground, // Import ImageBackground
+  Dimensions,
+  ImageBackground,
   KeyboardAvoidingView,
-  Platform, // Tetap diimpor karena digunakan untuk KeyboardAvoidingView
+  Platform,
   ScrollView,
   StatusBar,
   Text,
@@ -17,21 +18,34 @@ import {
   View,
 } from 'react-native';
 
-// Pastikan path ini benar sesuai struktur proyek Anda
 import { login } from '../../services/auth';
+import { DESIGN_TOKENS } from '../constants/designTokens'; // Import DESIGN_TOKENS
 import { saveUser } from '../utils/user';
 
-// --- Pilihan Warna (dari persyaratan sebelumnya) ---
-const PRIMARY_COLOR = '#ffcc00'; // Kuning
-// const SECONDARY_COLOR = '#36aac7'; // Tidak digunakan sebagai background polos
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
-const TEXT_ON_DARK_GLASS = 'rgba(255, 255, 255, 0.95)'; // Teks sangat putih untuk kontras
-const TEXT_ON_LIGHT_BUTTON = 'rgba(0, 0, 0, 0.85)'; // Teks gelap untuk tombol terang
+// API Response types
+interface AuthResponse {
+  success: boolean;
+  message?: string;
+  user?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+}
 
-// URL Gambar Placeholder untuk background
-// >>>>> GANTI INI DENGAN URL GAMBAR ANDA SENDIRI atau require('./path/to/your/image.jpg') <<<<<
+// Login request payload
+interface LoginPayload {
+  email: string;
+  password: string;
+}
+
+// Latar belakang yang sama untuk konsistensi
 const BACKGROUND_IMAGE_URI =
-  'https://images.unsplash.com/photo-1744194210914-0f5b2375645d?w=600&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxmZWF0dXJlZC1waG90b3MtZmVlZHwxMnx8fGVufDB8fHx8fA%3D%3D';
+  'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1200&auto=format&fit=crop&q=80';
+
+type FeatherIconName = 'mail' | 'lock' | 'eye' | 'eye-off' | 'loader';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -41,39 +55,80 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [focusedField, setFocusedField] = useState<string | null>(null);
 
-  // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(50)).current;
-  const scaleAnim = useRef(new Animated.Value(0.9)).current;
+  const scaleAnim = useRef(new Animated.Value(0.95)).current;
+  const headerAnim = useRef(
+    new Animated.Value(-DESIGN_TOKENS.spacing.md)
+  ).current; // Use DESIGN_TOKENS
+  const inputAnimRefs = useRef([
+    new Animated.Value(DESIGN_TOKENS.spacing.md), // Use DESIGN_TOKENS
+    new Animated.Value(DESIGN_TOKENS.spacing.lg), // Use DESIGN_TOKENS
+  ]).current;
+  const buttonAnim = useRef(
+    new Animated.Value(DESIGN_TOKENS.spacing.xxl)
+  ).current; // Use DESIGN_TOKENS
 
-  // Start animation on component mount
   useEffect(() => {
-    // Menggunakan useEffect
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 1000,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 800,
+    startEntranceAnimation();
+  }, []);
+
+  const startEntranceAnimation = (): void => {
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scaleAnim, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.stagger(80, [
+        Animated.timing(headerAnim, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        ...inputAnimRefs.map((anim: Animated.Value) =>
+          Animated.timing(anim, {
+            toValue: 0,
+            duration: 600,
+            useNativeDriver: true,
+          })
+        ),
+        Animated.timing(buttonAnim, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start();
+  };
+
+  const animateButtonPress = (): void => {
+    Animated.sequence([
+      Animated.timing(scaleAnim, {
+        toValue: 0.98,
+        duration: 100,
         useNativeDriver: true,
       }),
       Animated.timing(scaleAnim, {
         toValue: 1,
-        duration: 800,
+        duration: 100,
         useNativeDriver: true,
       }),
     ]).start();
-  }, [fadeAnim, slideAnim, scaleAnim]); // Menambahkan dependency array
+  };
 
-  // Email validation
-  const validateEmail = (inputEmail: string) => {
+  const validateEmail = useCallback((inputEmail: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!inputEmail) {
-      setEmailError('Email tidak boleh kosong');
+    if (!inputEmail.trim()) {
+      setEmailError('Email diperlukan');
       return false;
     }
     if (!emailRegex.test(inputEmail)) {
@@ -82,387 +137,406 @@ export default function LoginScreen() {
     }
     setEmailError('');
     return true;
-  };
+  }, []);
 
-  // Password validation
-  const validatePassword = (inputPassword: string) => {
+  const validatePassword = useCallback((inputPassword: string): boolean => {
     if (!inputPassword) {
-      setPasswordError('Password tidak boleh kosong');
+      setPasswordError('Password diperlukan');
       return false;
     }
+    // Using minLength from DESIGN_TOKENS for consistency if defined, otherwise default to 6
+    // Note: DESIGN_TOKENS.typography doesn't have minLength for password, so keep 6 for now
     if (inputPassword.length < 6) {
       setPasswordError('Password minimal 6 karakter');
       return false;
     }
     setPasswordError('');
     return true;
-  };
+  }, []);
 
-  const handleLogin = async () => {
+  const handleLogin = async (): Promise<void> => {
+    if (isLoading) return;
+
     const isEmailValid = validateEmail(email);
     const isPasswordValid = validatePassword(password);
 
-    if (isEmailValid && isPasswordValid) {
-      setIsLoading(true);
-      try {
-        const response = await login({ email, password });
-        console.log('response on login', response);
+    if (!isEmailValid || !isPasswordValid) {
+      Alert.alert(
+        'Login Gagal',
+        'Mohon periksa kembali email dan password Anda.'
+      );
+      return;
+    }
 
-        if (response.success) {
-          console.log(response.success);
-          await saveUser(response.user);
+    setIsLoading(true);
+    animateButtonPress();
 
-          Animated.sequence([
-            Animated.timing(scaleAnim, {
-              toValue: 1.03,
-              duration: 150,
-              useNativeDriver: true,
-            }),
-            Animated.timing(scaleAnim, {
-              toValue: 1,
-              duration: 150,
-              useNativeDriver: true,
-            }),
-          ]).start(() => {
-            router.navigate('/(tabs)/main/attendance');
-          });
-        } else {
-          Alert.alert(
-            'Login Gagal',
-            response.message || 'Email atau password salah'
-          );
-        }
-      } catch (error) {
-        console.log('Error on Login', error);
+    try {
+      const payload: LoginPayload = { email, password };
+      const response: any = await login(payload);
+      console.log('Login response:', response);
+
+      if (response.success && response.user) {
+        await saveUser(response.user);
+
+        Animated.timing(scaleAnim, {
+          toValue: 1.02,
+          duration: 200,
+          useNativeDriver: true,
+        }).start(() => {
+          router.navigate('/(tabs)/main/Home');
+        });
+      } else {
         Alert.alert(
-          'Error',
-          'Terjadi kesalahan saat login. Silakan coba lagi.'
+          'Login Gagal',
+          response.message || 'Email atau password salah.'
         );
-      } finally {
-        setIsLoading(false);
       }
+    } catch (error: unknown) {
+      console.error('Login error:', error);
+      Alert.alert(
+        'Error',
+        'Terjadi kesalahan jaringan atau server. Silakan coba lagi nanti.'
+      );
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // Floating elements tidak lagi diperlukan karena background image sudah cukup
-  // memberikan visual interest.
+  const renderInput = (
+    fieldId: string,
+    value: string,
+    onChangeText: (text: string) => void,
+    onBlur: () => void,
+    placeholder: string,
+    icon: FeatherIconName,
+    error: string,
+    anim: Animated.Value,
+    isPassword?: boolean,
+    showPassword?: boolean,
+    onTogglePassword?: () => void
+  ) => {
+    const hasError: boolean = !!error;
+    const isFocused: boolean = focusedField === fieldId;
+
+    return (
+      <Animated.View
+        style={{
+          marginBottom: DESIGN_TOKENS.spacing.md,
+          transform: [{ translateY: anim }],
+        }}
+      >
+        <BlurView
+          intensity={Platform.OS === 'ios' ? 15 : 12}
+          tint='systemMaterialDark'
+          style={{
+            borderRadius: DESIGN_TOKENS.borderRadius.md,
+            overflow: 'hidden',
+            backgroundColor: isFocused
+              ? DESIGN_TOKENS.colors.glassInputFocused
+              : DESIGN_TOKENS.colors.glassInputBg,
+            borderWidth: 1,
+            borderColor: hasError
+              ? DESIGN_TOKENS.colors.error
+              : isFocused
+                ? DESIGN_TOKENS.colors.primary
+                : DESIGN_TOKENS.colors.glassBorder,
+            shadowColor: isFocused
+              ? DESIGN_TOKENS.colors.primary
+              : 'rgba(0,0,0,0.1)',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: isFocused ? 0.2 : 0.1,
+            shadowRadius: 4,
+          }}
+        >
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: DESIGN_TOKENS.spacing.md,
+              height: 56,
+            }}
+          >
+            <Feather
+              name={icon}
+              size={20}
+              color={
+                isFocused
+                  ? DESIGN_TOKENS.colors.primary
+                  : DESIGN_TOKENS.colors.textSecondary
+              }
+              style={{ marginRight: DESIGN_TOKENS.spacing.sm }} // Use DESIGN_TOKENS
+            />
+            <TextInput
+              style={{
+                flex: 1,
+                ...DESIGN_TOKENS.typography.body,
+                color: DESIGN_TOKENS.colors.textPrimary,
+              }}
+              placeholder={placeholder}
+              placeholderTextColor={DESIGN_TOKENS.colors.textPlaceholder}
+              value={value}
+              onChangeText={onChangeText}
+              onFocus={() => setFocusedField(fieldId)}
+              onBlur={() => {
+                setFocusedField(null);
+                onBlur();
+              }}
+              keyboardType={isPassword ? 'default' : 'email-address'}
+              secureTextEntry={isPassword ? !showPassword : false}
+              autoCapitalize={isPassword ? 'none' : 'none'}
+              autoCorrect={false}
+            />
+            {isPassword && onTogglePassword && (
+              <TouchableOpacity
+                onPress={onTogglePassword}
+                style={{ padding: DESIGN_TOKENS.spacing.xs }} // Use DESIGN_TOKENS
+              >
+                <Feather
+                  name={showPassword ? 'eye-off' : 'eye'}
+                  size={20}
+                  color={DESIGN_TOKENS.colors.textSecondary}
+                />
+              </TouchableOpacity>
+            )}
+          </View>
+        </BlurView>
+        {hasError && (
+          <Text
+            style={{
+              ...DESIGN_TOKENS.typography.error,
+              color: DESIGN_TOKENS.colors.error,
+              marginTop: DESIGN_TOKENS.spacing.sm, // Use DESIGN_TOKENS
+              marginLeft: DESIGN_TOKENS.spacing.xs, // Use DESIGN_TOKENS
+            }}
+          >
+            {error}
+          </Text>
+        )}
+      </Animated.View>
+    );
+  };
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      className='flex-1'
+      style={{ flex: 1 }}
     >
       <StatusBar
-        barStyle='light-content' // Umumnya cocok untuk gambar background
+        barStyle='light-content'
         translucent
         backgroundColor='transparent'
       />
 
-      {/* ImageBackground sebagai pengganti background polos */}
       <ImageBackground
         source={{ uri: BACKGROUND_IMAGE_URI }}
-        resizeMode='cover' // Sesuaikan mode resize sesuai kebutuhan (cover, contain, stretch, repeat, center)
-        style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
+        style={{ flex: 1 }}
+        resizeMode='cover'
       >
-        {/* Blur overlay untuk memastikan kontras teks (seperti di iOS) */}
         <BlurView
-          intensity={10}
+          intensity={Platform.OS === 'ios' ? 20 : 15}
           tint='dark'
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            top: 0,
-            bottom: 0,
-            flex: 1, // Penting agar BlurView mengambil seluruh ruang yang tersedia
-          }}
+          style={{ flex: 1 }}
         >
           <ScrollView
             contentContainerStyle={{
               flexGrow: 1,
               justifyContent: 'center',
-              alignItems: 'center',
-              paddingVertical: 40,
+              paddingHorizontal: DESIGN_TOKENS.spacing.lg,
+              paddingVertical: DESIGN_TOKENS.spacing.xxl,
             }}
             showsVerticalScrollIndicator={false}
           >
-            <View className='flex-1 items-center justify-center px-6'>
-              {/* Main Glass Container with Animation */}
-              <Animated.View
+            <Animated.View
+              style={{
+                opacity: fadeAnim,
+                transform: [{ scale: scaleAnim }],
+                maxWidth: 400,
+                width: '100%',
+                alignSelf: 'center',
+              }}
+            >
+              <BlurView
+                intensity={Platform.OS === 'ios' ? 30 : 25}
+                tint='systemMaterialDark'
                 style={{
-                  opacity: fadeAnim,
-                  transform: [{ translateY: slideAnim }, { scale: scaleAnim }],
-                  width: '100%',
-                  maxWidth: 400,
-                  paddingHorizontal: 20,
+                  borderRadius: DESIGN_TOKENS.borderRadius.xl,
+                  overflow: 'hidden',
+                  backgroundColor: DESIGN_TOKENS.colors.glassBg,
+                  borderWidth: 0.5,
+                  borderColor: DESIGN_TOKENS.colors.glassBorder,
+                  shadowColor: 'rgba(0, 0, 0, 0.3)',
+                  shadowOffset: { width: 0, height: 8 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 20,
                 }}
               >
-                <BlurView
-                  intensity={20}
-                  tint='dark'
-                  className='w-full rounded-3xl overflow-hidden'
-                  style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.13)', // Sesuai dengan background dari CSS glass
-                    borderWidth: 1,
-                    borderColor: 'rgba(255, 255, 255, 0.44)', // Sesuai dengan border dari CSS glass
-                    shadowColor: 'rgba(0, 0, 0, 0.1)', // Sesuai dengan box-shadow dari CSS glass
-                    shadowOffset: {
-                      width: 0,
-                      height: 4, // Sesuai dengan offset dari CSS glass
-                    },
-                    shadowOpacity: 0.2, // Menggunakan 0.2 karena 0.1 di CSS itu lebih rendah di RN
-                    shadowRadius: 15, // Disesuaikan agar mendekati 30px di CSS glass
-                    elevation: 5,
-                  }}
-                >
-                  <View className='p-8'>
-                    {/* Header */}
-                    <View className='items-center mb-10'>
-                      <Text
-                        style={{
-                          fontSize: 36, // Font size yang proporsional untuk judul utama
-                          fontWeight: '700', // Bold
-                          color: TEXT_ON_DARK_GLASS, // Warna teks putih terang
-                          letterSpacing: 0.5, // Sedikit letter spacing untuk modern look
-                        }}
-                      >
-                        Selamat Datang!
-                      </Text>
-                      <Text
-                        style={{
-                          fontSize: 17, // Font size yang proporsional untuk sub-judul
-                          fontWeight: '400', // Regular
-                          color: 'rgba(255, 255, 255, 0.8)', // Agak transparan untuk sub-judul
-                          textAlign: 'center',
-                          marginTop: 4, // Sedikit spasi dari judul
-                        }}
-                      >
-                        Silakan login untuk melanjutkan
-                      </Text>
-                    </View>
-
-                    {/* Email Input */}
-                    <View className='mb-4'>
-                      <BlurView
-                        intensity={12} // Sedikit lebih blur dari container utama agar terlihat berbeda
-                        tint='dark'
-                        className='rounded-xl overflow-hidden'
-                        style={{
-                          backgroundColor: 'rgba(255, 255, 255, 0.05)', // Background input lebih transparan
-                          borderWidth: 0.7, // Border input lebih tipis dan halus
-                          borderColor: emailError
-                            ? 'rgba(255, 99, 71, 0.8)' // Tomat Red untuk error
-                            : 'rgba(255, 255, 255, 0.2)', // Normal border
-                          shadowColor: 'rgba(0, 0, 0, 0.05)', // Shadow input sangat halus
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.1,
-                          shadowRadius: 3,
-                          elevation: 1,
-                        }}
-                      >
-                        <View className='flex-row items-center'>
-                          <View className='pl-4'>
-                            <Feather
-                              name='mail'
-                              size={20}
-                              color={TEXT_ON_DARK_GLASS} // Warna icon putih terang
-                            />
-                          </View>
-                          <TextInput
-                            className='flex-1 h-14 px-3'
-                            style={{
-                              fontSize: 16, // Font size input
-                              fontWeight: '500', // Medium
-                              color: TEXT_ON_DARK_GLASS, // Warna teks input
-                              backgroundColor: 'transparent', // Pastikan transparan
-                            }}
-                            placeholder='Email'
-                            placeholderTextColor='rgba(255, 255, 255, 0.5)' // Placeholder lebih transparan untuk iOS look
-                            keyboardType='email-address'
-                            autoCapitalize='none'
-                            value={email}
-                            onChangeText={(text) => {
-                              setEmail(text);
-                              if (emailError) validateEmail(text);
-                            }}
-                            onBlur={() => validateEmail(email)}
-                          />
-                        </View>
-                      </BlurView>
-                      {emailError ? (
-                        <Text className='text-red-400 text-xs mt-1 ml-2 font-medium'>
-                          {emailError}
-                        </Text>
-                      ) : null}
-                    </View>
-
-                    {/* Password Input */}
-                    <View className='mb-6'>
-                      <BlurView
-                        intensity={12}
-                        tint='dark'
-                        className='rounded-xl overflow-hidden'
-                        style={{
-                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                          borderWidth: 0.7,
-                          borderColor: passwordError
-                            ? 'rgba(255, 99, 71, 0.8)'
-                            : 'rgba(255, 255, 255, 0.2)',
-                          shadowColor: 'rgba(0, 0, 0, 0.05)',
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.1,
-                          shadowRadius: 3,
-                          elevation: 1,
-                        }}
-                      >
-                        <View className='flex-row items-center'>
-                          <View className='pl-4'>
-                            <Feather
-                              name='lock'
-                              size={20}
-                              color={TEXT_ON_DARK_GLASS}
-                            />
-                          </View>
-                          <TextInput
-                            className='flex-1 h-14 px-3'
-                            style={{
-                              fontSize: 16, // Font size input
-                              fontWeight: '500', // Medium
-                              color: TEXT_ON_DARK_GLASS, // Warna teks input
-                              backgroundColor: 'transparent',
-                            }}
-                            placeholder='Password'
-                            placeholderTextColor='rgba(255, 255, 255, 0.5)'
-                            secureTextEntry={!showPassword}
-                            value={password}
-                            onChangeText={(text) => {
-                              setPassword(text);
-                              if (passwordError) validatePassword(text);
-                            }}
-                            onBlur={() => validatePassword(password)}
-                          />
-                          <TouchableOpacity
-                            className='pr-4'
-                            onPress={() => setShowPassword(!showPassword)}
-                          >
-                            <Feather
-                              name={showPassword ? 'eye-off' : 'eye'}
-                              size={20}
-                              color={TEXT_ON_DARK_GLASS}
-                            />
-                          </TouchableOpacity>
-                        </View>
-                      </BlurView>
-                      {passwordError ? (
-                        <Text className='text-red-400 text-xs mt-1 ml-2 font-medium'>
-                          {passwordError}
-                        </Text>
-                      ) : null}
-                    </View>
-
-                    {/* Forgot Password */}
-                    <TouchableOpacity
-                      className='items-end mb-8'
-                      onPress={() =>
-                        Alert.alert(
-                          'Lupa Password?',
-                          'Fitur ini akan segera tersedia.'
-                        )
-                      }
+                <View style={{ padding: DESIGN_TOKENS.spacing.xl }}>
+                  <Animated.View
+                    style={{
+                      alignItems: 'center',
+                      marginBottom: DESIGN_TOKENS.spacing.xxl,
+                      transform: [{ translateY: headerAnim }],
+                    }}
+                  >
+                    <Text
+                      style={{
+                        ...DESIGN_TOKENS.typography.h1, // Use h1 from DESIGN_TOKENS
+                        color: DESIGN_TOKENS.colors.textPrimary,
+                        textAlign: 'center',
+                      }}
                     >
-                      <Text
-                        style={{
-                          fontSize: 14, // Font size proporsional
-                          fontWeight: '500', // Medium
-                          color: 'rgba(255, 255, 255, 0.7)', // Agak transparan
-                        }}
-                      >
-                        Lupa Password?
-                      </Text>
-                    </TouchableOpacity>
+                      Selamat Datang
+                    </Text>
+                    <Text
+                      style={{
+                        ...DESIGN_TOKENS.typography.caption, // Use subtitle from DESIGN_TOKENS
+                        color: DESIGN_TOKENS.colors.textSecondary,
+                        textAlign: 'center',
+                        marginTop: DESIGN_TOKENS.spacing.sm,
+                      }}
+                    >
+                      Masuk untuk melanjutkan
+                    </Text>
+                  </Animated.View>
 
-                    {/* Login Button */}
+                  {/* Email Input */}
+                  {renderInput(
+                    'email',
+                    email,
+                    (text) => {
+                      setEmail(text);
+                      if (emailError) validateEmail(text);
+                    },
+                    () => validateEmail(email),
+                    'Email',
+                    'mail',
+                    emailError,
+                    inputAnimRefs[0],
+                    false
+                  )}
+
+                  {/* Password Input */}
+                  {renderInput(
+                    'password',
+                    password,
+                    (text) => {
+                      setPassword(text);
+                      if (passwordError) validatePassword(text);
+                    },
+                    () => validatePassword(password),
+                    'Password',
+                    'lock',
+                    passwordError,
+                    inputAnimRefs[1],
+                    true,
+                    showPassword,
+                    () => setShowPassword(!showPassword)
+                  )}
+
+                  <TouchableOpacity
+                    style={{
+                      alignItems: 'flex-end',
+                      marginBottom: DESIGN_TOKENS.spacing.lg,
+                    }}
+                    onPress={() =>
+                      Alert.alert(
+                        'Lupa Password?',
+                        'Fitur ini akan segera tersedia.'
+                      )
+                    }
+                  >
+                    <Text
+                      style={{
+                        ...DESIGN_TOKENS.typography.caption,
+                        fontWeight: '400',
+                        color: DESIGN_TOKENS.colors.primary,
+                      }}
+                    >
+                      Lupa Password?
+                    </Text>
+                  </TouchableOpacity>
+
+                  <Animated.View
+                    style={{
+                      transform: [{ translateY: buttonAnim }],
+                      marginBottom: DESIGN_TOKENS.spacing.lg,
+                    }}
+                  >
                     <TouchableOpacity
                       disabled={isLoading}
                       onPress={handleLogin}
-                      activeOpacity={0.7}
+                      activeOpacity={0.8}
                     >
                       <LinearGradient
-                        colors={[PRIMARY_COLOR, PRIMARY_COLOR]} // Menggunakan warna primary (kuning)
+                        colors={[DESIGN_TOKENS.colors.primary, '#0056CC']}
                         start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        className='rounded-xl overflow-hidden'
+                        end={{ x: 1, y: 1 }}
                         style={{
-                          // iOS-like shadow for buttons
-                          shadowColor: 'rgba(255, 204, 0, 0.3)', // Shadow yang menyala dari warna tombol
-                          shadowOffset: {
-                            width: 0,
-                            height: 4, // Offset tidak terlalu besar
-                          },
-                          shadowOpacity: 0.6, // Opacity shadow lumayan terlihat
-                          shadowRadius: 10, // Radius sedang
-                          elevation: 5,
+                          borderRadius: DESIGN_TOKENS.borderRadius.md,
+                          height: 56,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          flexDirection: 'row',
+                          shadowColor: DESIGN_TOKENS.colors.primary,
+                          shadowOffset: { width: 0, height: 4 },
+                          shadowOpacity: 0.3,
+                          shadowRadius: 12,
+                          opacity: isLoading ? 0.8 : 1,
                         }}
                       >
-                        <View
-                          className={`h-14 items-center justify-center flex-row ${
-                            isLoading ? 'opacity-70' : 'opacity-100'
-                          }`}
-                        >
-                          {isLoading && (
-                            <View className='mr-2'>
-                              <Feather
-                                name='loader'
-                                size={20}
-                                color={TEXT_ON_LIGHT_BUTTON}
-                              />
-                            </View>
-                          )}
-                          <Text
-                            style={{
-                              fontSize: 18, // Font size tombol konsisten
-                              fontWeight: '700', // Bold
-                              color: TEXT_ON_LIGHT_BUTTON, // Teks gelap untuk kontras dengan kuning
-                            }}
+                        {isLoading && (
+                          <Animated.View
+                            style={{ marginRight: DESIGN_TOKENS.spacing.sm }}
                           >
-                            {isLoading ? 'Loading...' : 'Login'}
-                          </Text>
-                        </View>
+                            <Feather
+                              name='loader'
+                              size={20}
+                              color={DESIGN_TOKENS.colors.textOnButton}
+                            />
+                          </Animated.View>
+                        )}
+                        <Text
+                          style={{
+                            ...DESIGN_TOKENS.typography.button,
+                            color: DESIGN_TOKENS.colors.textOnButton,
+                          }}
+                        >
+                          {isLoading ? 'Memproses...' : 'Masuk'}
+                        </Text>
                       </LinearGradient>
                     </TouchableOpacity>
+                  </Animated.View>
 
-                    {/* Register Link */}
-                    <View className='items-center mt-8'>
-                      <Link href='/register' asChild>
-                        <TouchableOpacity activeOpacity={0.7}>
-                          <View className='flex-row'>
-                            <Text
-                              style={{
-                                fontSize: 14, // Font size konsisten
-                                fontWeight: '400', // Regular
-                                color: 'rgba(255, 255, 255, 0.7)', // Agak transparan
-                              }}
-                            >
-                              Belum memiliki akun?{' '}
-                            </Text>
-                            <Text
-                              style={{
-                                fontSize: 14, // Font size konsisten
-                                fontWeight: '600', // Semi-bold untuk link
-                                color: TEXT_ON_DARK_GLASS, // Warna link
-                                textDecorationLine: 'underline', // Underline untuk link
-                              }}
-                            >
-                              Daftar
-                            </Text>
-                          </View>
-                        </TouchableOpacity>
-                      </Link>
-                    </View>
+                  <View style={{ alignItems: 'center' }}>
+                    <Link href='/register' asChild>
+                      <TouchableOpacity activeOpacity={0.7}>
+                        <View style={{ flexDirection: 'row' }}>
+                          <Text
+                            style={{
+                              ...DESIGN_TOKENS.typography.caption,
+                              fontWeight: '400',
+                              color: DESIGN_TOKENS.colors.textSecondary,
+                            }}
+                          >
+                            Belum punya akun?{' '}
+                          </Text>
+                          <Text
+                            style={{
+                              ...DESIGN_TOKENS.typography.caption,
+                              fontWeight: '600',
+                              color: DESIGN_TOKENS.colors.primary,
+                            }}
+                          >
+                            Daftar Sekarang
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    </Link>
                   </View>
-                </BlurView>
-              </Animated.View>
-            </View>
+                </View>
+              </BlurView>
+            </Animated.View>
           </ScrollView>
         </BlurView>
       </ImageBackground>
