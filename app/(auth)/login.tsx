@@ -18,9 +18,9 @@ import {
   View,
 } from 'react-native';
 
+import { DESIGN_TOKENS } from '../../constants/designTokens'; // Import DESIGN_TOKENS
 import { login } from '../../services/auth';
-import { DESIGN_TOKENS } from '../constants/designTokens'; // Import DESIGN_TOKENS
-import { saveUser } from '../utils/user';
+import { saveUser } from '../../utils/user';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 

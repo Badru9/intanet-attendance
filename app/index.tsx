@@ -1,5 +1,5 @@
-import LoginScreen from './(auth)/login';
+import Home from '@/app/(tabs)/main/Home';
 
 export default function Index() {
-  return <LoginScreen />;
+  return <Home />;
 }

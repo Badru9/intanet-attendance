@@ -18,9 +18,9 @@ import {
   View,
 } from 'react-native';
 
+import { DESIGN_TOKENS } from '../../constants/designTokens'; // Import DESIGN_TOKENS
 import { register } from '../../services/auth';
-import { DESIGN_TOKENS } from '../constants/designTokens'; // Import DESIGN_TOKENS
-import { saveUser } from '../utils/user';
+import { saveUser } from '../../utils/user';
 
 // TypeScript type definitions for better type safety
 type KeyboardType = 'default' | 'email-address' | 'numeric' | 'phone-pad';

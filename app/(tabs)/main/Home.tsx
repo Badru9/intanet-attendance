@@ -1,4 +1,5 @@
 // app/screens/main/Home.tsx
+// Kode yang dikoreksi penuh dengan penambahan timeout untuk debugging state
 
 import { Feather } from '@expo/vector-icons';
 import { useAsyncStorage } from '@react-native-async-storage/async-storage';
@@ -9,78 +10,94 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  ColorValue,
   ImageBackground,
   Platform,
   ScrollView,
   StatusBar,
+  StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 
-// Import UserType
-import { UserType } from '../../types/index';
-// Import DESIGN_TOKENS
-import { DESIGN_TOKENS } from '../../constants/designTokens';
-// Import attendance service
-import { attendance } from '../../../services/attendance'; // Adjust path if necessary
-// Import callback store
+import { UserType } from '../../../types';
+import {
+  getAttendanceStatus,
+  saveAttendanceStatus,
+} from '../../../utils/attendanceStorage';
 import {
   clearCaptureCallback,
   setCaptureCallback,
-} from '../../utils/callbackStore';
+} from '../../../utils/callbackStore';
 
-// Latar belakang yang sama untuk konsistensi
 const BACKGROUND_IMAGE_URI =
   'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1200&auto=format&fit=crop&q=80';
+
+type AttendanceStatus =
+  | 'clock_in_pending'
+  | 'clock_out_pending'
+  | 'completed'
+  | null;
+
+type ButtonProps = {
+  onPress: () => void;
+  text: string;
+  icon: keyof typeof Feather.glyphMap | 'loader';
+  colors: [ColorValue, ColorValue, ...ColorValue[]];
+  disabled: boolean;
+};
 
 export default function Home() {
   const router = useRouter();
   const [user, setUser] = useState<UserType | null>(null);
   const [currentDate, setCurrentDate] = useState<string>('');
   const [currentTime, setCurrentTime] = useState<string>('');
-  const [attendanceStatus, setAttendanceStatus] = useState<
-    'clock_in' | 'clock_out' | null
-  >(null); // 'clock_in' means already clocked in today, 'clock_out' means not yet
-  const [isProcessingAttendance, setIsProcessingAttendance] = useState(false); // State for loading/processing
+  const [attendanceStatus, setAttendanceStatus] =
+    useState<AttendanceStatus>(null);
 
   const { getItem } = useAsyncStorage('user');
 
-  // Animation values
-  const headerAnim = useRef(
-    new Animated.Value(-DESIGN_TOKENS.spacing.xl)
-  ).current;
-  const card1Anim = useRef(
-    new Animated.Value(DESIGN_TOKENS.spacing.xxl)
-  ).current;
-  const card2Anim = useRef(
-    new Animated.Value(DESIGN_TOKENS.spacing.xxl)
-  ).current;
+  const headerAnim = useRef(new Animated.Value(-40)).current;
+  const card1Anim = useRef(new Animated.Value(80)).current;
+  const card2Anim = useRef(new Animated.Value(80)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const loadUserAndAttendanceStatus = async () => {
+    const loadData = async () => {
       try {
-        const jsonValue = await getItem();
-        if (jsonValue != null) {
-          const userData: UserType = JSON.parse(jsonValue);
+        // Tambahkan timeout untuk simulasi loading dan debugging
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        const userJson = await getItem();
+        if (userJson != null) {
+          const userData: UserType = JSON.parse(userJson);
           setUser(userData);
-          // TODO: Di sini, Anda perlu memuat status presensi pengguna untuk hari ini dari API backend.
-          // Contoh: panggil API `/api/attendances/today-status`
-          // Jika ada record presensi hari ini, set attendanceStatus('clock_in').
-          // Jika tidak ada atau record menunjukkan belum check-in, set attendanceStatus('clock_out').
-          // Untuk demonstrasi, kita akan default ke 'clock_out'.
-          setAttendanceStatus('clock_out'); // Default: pengguna belum clock in.
+        }
+
+        const record = await getAttendanceStatus();
+        if (record) {
+          if (
+            record.clockInStatus === 'completed' &&
+            record.clockOutStatus === 'pending'
+          ) {
+            setAttendanceStatus('clock_out_pending');
+          } else if (
+            record.clockInStatus === 'completed' &&
+            record.clockOutStatus === 'completed'
+          ) {
+            setAttendanceStatus('completed');
+          } else {
+            // Ini untuk kasus record ada tapi belum clock in
+            setAttendanceStatus('clock_in_pending');
+          }
         } else {
-          // User data not found, maybe redirect to login?
-          // router.replace('/auth/login');
+          setAttendanceStatus('clock_in_pending');
         }
       } catch (e) {
-        console.error(
-          'Failed to load user or attendance status from async storage',
-          e
-        );
-        // Handle error, e.g., show alert and redirect to login
+        console.error('Failed to load data from storage', e);
+        // Fallback untuk memastikan aplikasi tidak stuck di loading
+        setAttendanceStatus('clock_in_pending');
       }
     };
 
@@ -104,10 +121,9 @@ export default function Home() {
       );
     };
 
-    loadUserAndAttendanceStatus();
+    loadData();
     updateDateTime();
     const intervalId = setInterval(updateDateTime, 1000);
-
     Animated.sequence([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -132,74 +148,60 @@ export default function Home() {
         }),
       ]),
     ]).start();
+    return () => clearInterval(intervalId);
+  }, []);
 
-    return () => clearInterval(intervalId); // Cleanup interval
-  }, []); // Add getItem to dependencies if it's not stable across renders
-
-  // --- Handlers for main features ---
-
-  const handlePresence = async () => {
-    // Disable interaction if already processing
-    if (isProcessingAttendance) {
-      return;
-    }
-
-    // Logic for preventing multiple clock-ins
-    // Based on your Laravel controller, it only allows one check-in per day.
-    // So, if attendanceStatus is 'clock_in', we prevent further clock-ins.
-    if (attendanceStatus === 'clock_in') {
-      Alert.alert(
-        'Sudah Absen',
-        'Anda sudah melakukan absensi hari ini. Tidak bisa melakukan Clock In lagi.',
-        [{ text: 'OK' }]
-      );
-      return;
-    }
-
-    // This is the callback function that will be executed after photo/location capture
-    // in AttendanceCameraScreen.
+  const handleClockIn = async () => {
     const onCaptureData = async (
       photoUri: string,
       locationString: string,
       notes: string | null
     ) => {
-      setIsProcessingAttendance(true); // Set loading true while sending to API
-      try {
-        const attendanceData = {
-          location_check_in: locationString,
-          photo_check_in: photoUri,
-          notes: notes,
-        };
+      console.log('Simulasi clock in berhasil dengan data:');
+      console.log('Photo URI:', photoUri);
+      console.log('Location:', locationString);
+      console.log('Notes:', notes);
 
-        // Call the attendance service
-        const response = await attendance(attendanceData);
+      const newRecord = {
+        date: new Date().toISOString().slice(0, 10),
+        clockInStatus: 'completed' as 'completed',
+        clockOutStatus: 'pending' as 'pending',
+      };
+      await saveAttendanceStatus(newRecord);
+      setAttendanceStatus('clock_out_pending');
 
-        if (response.success) {
-          setAttendanceStatus('clock_in'); // Update status to reflect successful clock-in
-          Alert.alert('Sukses', response.message || 'Presensi berhasil!');
-        } else {
-          Alert.alert(
-            'Gagal Presensi',
-            response.message || 'Terjadi kesalahan saat presensi.'
-          );
-        }
-      } catch (error: any) {
-        console.error('Error sending attendance data:', error);
-        Alert.alert(
-          'Error Presensi',
-          error.message || 'Terjadi kesalahan tidak terduga saat presensi.'
-        );
-      } finally {
-        setIsProcessingAttendance(false); // Reset loading state
-        clearCaptureCallback(); // Clear the callback from the store after execution
-      }
+      Alert.alert('Sukses', 'Absensi masuk Anda telah tercatat.');
+      clearCaptureCallback();
     };
-
-    // Before navigating to the camera screen, set the callback in the store.
     setCaptureCallback(onCaptureData);
+    router.push('/attendance/camera');
+  };
 
-    // Navigate to the camera screen. No need to pass params directly.
-    router.push('/(tabs)/main/attendance/camera');
+  const handleClockOut = async () => {
+    const onCaptureData = async (
+      photoUri: string,
+      locationString: string,
+      notes: string | null
+    ) => {
+      console.log('Simulasi clock out berhasil dengan data:');
+      console.log('Photo URI:', photoUri);
+      console.log('Location:', locationString);
+      console.log('Notes:', notes);
+
+      const record = await getAttendanceStatus();
+      if (record) {
+        const updatedRecord = {
+          ...record,
+          clockOutStatus: 'completed' as 'completed',
+        };
+        await saveAttendanceStatus(updatedRecord);
+        setAttendanceStatus('completed');
+        Alert.alert('Sukses', 'Absensi keluar Anda telah tercatat.');
+      }
+      clearCaptureCallback();
+    };
+    setCaptureCallback(onCaptureData);
+    router.push('/attendance/camera');
   };
 
   const handleLeaveRequest = () => {
@@ -210,7 +212,7 @@ export default function Home() {
         {
           text: 'OK',
           onPress: () => {
-            router.push('/(tabs)/main/Leave'); // Navigate to a dedicated leave request screen
+            router.push('/(tabs)/main/Leave');
           },
         },
       ]
@@ -222,295 +224,171 @@ export default function Home() {
       'Fitur Lain',
       `Anda mengklik fitur: ${featureName}. Ini adalah placeholder.`
     );
-    // TODO: Implement navigation or logic for other features
   };
+
+  const getButtonProps = (): ButtonProps => {
+    switch (attendanceStatus) {
+      case 'clock_in_pending':
+        return {
+          onPress: handleClockIn,
+          text: 'Clock In',
+          icon: 'log-in',
+          colors: ['#3B82F6', '#0056CC'],
+          disabled: false,
+        };
+      case 'clock_out_pending':
+        return {
+          onPress: handleClockOut,
+          text: 'Clock Out',
+          icon: 'log-out',
+          colors: ['#EF4444', '#B91C1C'],
+          disabled: false,
+        };
+      case 'completed':
+        return {
+          onPress: () => {},
+          text: 'Sudah Absen Hari Ini',
+          icon: 'check',
+          colors: ['#10B981', '#059669'],
+          disabled: true,
+        };
+      default:
+        return {
+          onPress: () => {},
+          text: 'Memuat...',
+          icon: 'loader',
+          colors: ['#6B7280', '#4B5563'],
+          disabled: true,
+        };
+    }
+  };
+
+  const buttonProps = getButtonProps();
 
   return (
     <ImageBackground
       source={{ uri: BACKGROUND_IMAGE_URI }}
-      style={{ flex: 1 }}
-      resizeMode='cover'
+      style={styles.container}
     >
-      <StatusBar
-        barStyle='light-content'
-        translucent
-        backgroundColor='transparent'
-      />
+      <StatusBar barStyle='light-content' translucent />
       <BlurView
         intensity={Platform.OS === 'ios' ? 20 : 15}
         tint='dark'
-        style={{
-          flex: 1,
-          paddingTop: StatusBar.currentHeight || DESIGN_TOKENS.spacing.xxl,
-        }}
+        style={styles.blurContainer}
       >
         <ScrollView
-          contentContainerStyle={{
-            flexGrow: 1,
-            paddingHorizontal: DESIGN_TOKENS.spacing.lg,
-            paddingBottom: DESIGN_TOKENS.spacing.xxl,
-          }}
+          contentContainerStyle={styles.scrollViewContent}
           showsVerticalScrollIndicator={false}
+          className='mt-5'
         >
-          {/* Header Section */}
           <Animated.View
-            style={{
-              opacity: fadeAnim,
-              transform: [{ translateY: headerAnim }],
-              marginBottom: DESIGN_TOKENS.spacing.xl,
-              marginTop: DESIGN_TOKENS.spacing.md,
-            }}
+            style={[
+              styles.header,
+              { opacity: fadeAnim, transform: [{ translateY: headerAnim }] },
+            ]}
           >
-            <Text
-              style={{
-                ...DESIGN_TOKENS.typography.h1,
-                color: DESIGN_TOKENS.colors.textPrimary,
-                marginBottom: DESIGN_TOKENS.spacing.xs,
-              }}
-            >
+            <Text style={styles.greetingText}>
               Halo, {user?.name || 'Pengguna'}!
             </Text>
-            <Text
-              style={{
-                ...DESIGN_TOKENS.typography.bodyLight,
-                color: DESIGN_TOKENS.colors.textSecondary,
-              }}
-            >
-              {currentDate}
-            </Text>
-            <Text
-              style={{
-                ...DESIGN_TOKENS.typography.h2,
-                color: DESIGN_TOKENS.colors.textPrimary,
-                marginTop: DESIGN_TOKENS.spacing.xs,
-              }}
-            >
-              {currentTime}
-            </Text>
+            <Text style={styles.dateText}>{currentDate}</Text>
+            <Text style={styles.timeText}>{currentTime}</Text>
           </Animated.View>
 
-          {/* Quick Actions Section */}
           <Animated.View
-            style={{
-              opacity: fadeAnim,
-              transform: [{ translateY: card1Anim }],
-              marginBottom: DESIGN_TOKENS.spacing.lg,
-            }}
+            style={[
+              styles.cardContainer,
+              { opacity: fadeAnim, transform: [{ translateY: card1Anim }] },
+            ]}
           >
             <BlurView
               intensity={Platform.OS === 'ios' ? 30 : 25}
               tint='systemMaterialDark'
-              style={{
-                borderRadius: DESIGN_TOKENS.borderRadius.xl,
-                overflow: 'hidden',
-                backgroundColor: DESIGN_TOKENS.colors.glassCardBg,
-                borderWidth: 0.5,
-                borderColor: DESIGN_TOKENS.colors.glassBorder,
-                shadowColor: 'rgba(0, 0, 0, 0.2)',
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.2,
-                shadowRadius: 10,
-                elevation: 5,
-                padding: DESIGN_TOKENS.spacing.xl,
-              }}
+              style={[styles.glassCard, styles.card]}
             >
-              <Text
-                style={{
-                  ...DESIGN_TOKENS.typography.h3,
-                  color: DESIGN_TOKENS.colors.textPrimary,
-                  marginBottom: DESIGN_TOKENS.spacing.md,
-                }}
-              >
-                Presensi Hari Ini
-              </Text>
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  marginBottom: DESIGN_TOKENS.spacing.md,
-                }}
-              >
+              <Text style={styles.cardTitle}>Presensi Hari Ini</Text>
+              <View style={styles.statusRow}>
                 <Feather
-                  name={
-                    attendanceStatus === 'clock_in' ? 'check-circle' : 'circle'
-                  }
+                  name={buttonProps.icon}
+                  className={`${buttonProps.icon === 'loader' ? 'animate-spin' : ''}`}
                   size={24}
                   color={
-                    attendanceStatus === 'clock_in'
-                      ? DESIGN_TOKENS.colors.success
-                      : DESIGN_TOKENS.colors.textSecondary
+                    buttonProps.disabled
+                      ? '#A0AEC0'
+                      : buttonProps.icon === 'check'
+                        ? '#10B981'
+                        : '#A0AEC0'
                   }
-                  style={{ marginRight: DESIGN_TOKENS.spacing.sm }}
+                  style={styles.statusIcon}
                 />
-                <Text
-                  style={{
-                    ...DESIGN_TOKENS.typography.body,
-                    color: DESIGN_TOKENS.colors.textSecondary,
-                  }}
-                >
-                  Status:{' '}
-                  {attendanceStatus === 'clock_in'
-                    ? 'Sudah Melakukan Absensi'
-                    : 'Belum Melakukan Absensi'}
+                <Text style={styles.statusText}>
+                  Status: {buttonProps.text}
                 </Text>
               </View>
-
               <TouchableOpacity
-                onPress={handlePresence}
+                onPress={buttonProps.onPress}
                 activeOpacity={0.8}
-                disabled={
-                  isProcessingAttendance || attendanceStatus === 'clock_in'
-                } // Disable if processing OR already clocked in
-                style={{
-                  borderRadius: DESIGN_TOKENS.borderRadius.md,
-                  overflow: 'hidden',
-                  opacity:
-                    isProcessingAttendance || attendanceStatus === 'clock_in'
-                      ? 0.7
-                      : 1, // Visual feedback when disabled
-                }}
+                disabled={buttonProps.disabled}
+                style={[
+                  styles.button,
+                  buttonProps.disabled && styles.buttonDisabled,
+                ]}
               >
                 <LinearGradient
-                  colors={
-                    attendanceStatus === 'clock_in'
-                      ? ['#FF3B30', '#CC2D2D'] // Red for already clocked in
-                      : [DESIGN_TOKENS.colors.primary, '#0056CC']
-                  }
+                  colors={buttonProps.colors}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
-                  style={{
-                    height: 56,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    flexDirection: 'row',
-                    shadowColor: DESIGN_TOKENS.colors.primary,
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.3,
-                    shadowRadius: 12,
-                    elevation: 6,
-                  }}
+                  style={styles.buttonGradient}
                 >
-                  {isProcessingAttendance ? (
-                    <Feather
-                      name='loader'
-                      size={20}
-                      color={DESIGN_TOKENS.colors.textOnButton}
-                      style={{ marginRight: DESIGN_TOKENS.spacing.sm }}
-                    />
-                  ) : (
-                    <Feather
-                      name={
-                        attendanceStatus === 'clock_in' ? 'check' : 'log-in' // Show check icon if already clocked in
-                      }
-                      size={20}
-                      color={DESIGN_TOKENS.colors.textOnButton}
-                      style={{ marginRight: DESIGN_TOKENS.spacing.sm }}
-                    />
-                  )}
-                  <Text
-                    style={{
-                      ...DESIGN_TOKENS.typography.button,
-                      color: DESIGN_TOKENS.colors.textOnButton,
-                    }}
-                  >
-                    {isProcessingAttendance
-                      ? 'Memproses...'
-                      : attendanceStatus === 'clock_in'
-                        ? 'Sudah Absen Hari Ini'
-                        : 'Clock In'}
-                  </Text>
+                  <Feather
+                    name={buttonProps.icon}
+                    size={20}
+                    color='#FFF'
+                    style={styles.buttonIcon}
+                  />
+                  <Text style={styles.buttonText}>{buttonProps.text}</Text>
                 </LinearGradient>
               </TouchableOpacity>
             </BlurView>
           </Animated.View>
 
-          {/* Leave Request Card */}
           <Animated.View
-            style={{
-              opacity: fadeAnim,
-              transform: [{ translateY: card2Anim }],
-              marginBottom: DESIGN_TOKENS.spacing.lg,
-            }}
+            style={[
+              styles.cardContainer,
+              { opacity: fadeAnim, transform: [{ translateY: card2Anim }] },
+            ]}
           >
             <BlurView
               intensity={Platform.OS === 'ios' ? 30 : 25}
               tint='systemMaterialDark'
-              style={{
-                borderRadius: DESIGN_TOKENS.borderRadius.xl,
-                overflow: 'hidden',
-                backgroundColor: DESIGN_TOKENS.colors.glassCardBg,
-                borderWidth: 0.5,
-                borderColor: DESIGN_TOKENS.colors.glassBorder,
-                shadowColor: 'rgba(0, 0, 0, 0.2)',
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.2,
-                shadowRadius: 10,
-                elevation: 5,
-                padding: DESIGN_TOKENS.spacing.xl,
-              }}
+              style={[styles.glassCard, styles.card]}
             >
-              <Text
-                style={{
-                  ...DESIGN_TOKENS.typography.h3,
-                  color: DESIGN_TOKENS.colors.textPrimary,
-                  marginBottom: DESIGN_TOKENS.spacing.md,
-                }}
-              >
-                Pengajuan Izin / Cuti
-              </Text>
-              <Text
-                style={{
-                  ...DESIGN_TOKENS.typography.bodyLight,
-                  color: DESIGN_TOKENS.colors.textSecondary,
-                  marginBottom: DESIGN_TOKENS.spacing.md,
-                }}
-              >
+              <Text style={styles.cardTitle}>Pengajuan Izin / Cuti</Text>
+              <Text style={styles.cardBody}>
                 Ajukan permohonan izin atau cuti Anda dengan mudah di sini.
               </Text>
               <TouchableOpacity
                 onPress={handleLeaveRequest}
                 activeOpacity={0.8}
-                style={{
-                  borderRadius: DESIGN_TOKENS.borderRadius.md,
-                  overflow: 'hidden',
-                }}
+                style={styles.button}
               >
                 <LinearGradient
-                  colors={[DESIGN_TOKENS.colors.accent, '#D68200']}
+                  colors={['#F59E0B', '#D68200']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
-                  style={{
-                    height: 56,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    flexDirection: 'row',
-                    shadowColor: DESIGN_TOKENS.colors.accent,
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.3,
-                    shadowRadius: 12,
-                    elevation: 6,
-                  }}
+                  style={styles.buttonGradient}
                 >
                   <Feather
                     name='calendar'
                     size={20}
-                    color={DESIGN_TOKENS.colors.textOnButton}
-                    style={{ marginRight: DESIGN_TOKENS.spacing.sm }}
+                    color='#FFF'
+                    style={styles.buttonIcon}
                   />
-                  <Text
-                    style={{
-                      ...DESIGN_TOKENS.typography.button,
-                      color: DESIGN_TOKENS.colors.textOnButton,
-                    }}
-                  >
-                    Ajukan Cuti / Izin
-                  </Text>
+                  <Text style={styles.buttonText}>Ajukan Cuti / Izin</Text>
                 </LinearGradient>
               </TouchableOpacity>
             </BlurView>
           </Animated.View>
 
-          {/* Other Features Section (Example) */}
           <Animated.View
             style={{
               opacity: fadeAnim,
@@ -520,156 +398,37 @@ export default function Home() {
             <BlurView
               intensity={Platform.OS === 'ios' ? 30 : 25}
               tint='systemMaterialDark'
-              style={{
-                borderRadius: DESIGN_TOKENS.borderRadius.xl,
-                overflow: 'hidden',
-                backgroundColor: DESIGN_TOKENS.colors.glassCardBg,
-                borderWidth: 0.5,
-                borderColor: DESIGN_TOKENS.colors.glassBorder,
-                shadowColor: 'rgba(0, 0, 0, 0.2)',
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.2,
-                shadowRadius: 10,
-                elevation: 5,
-                padding: DESIGN_TOKENS.spacing.xl,
-              }}
+              style={[styles.glassCard, styles.card]}
             >
-              <Text
-                style={{
-                  ...DESIGN_TOKENS.typography.h3,
-                  color: DESIGN_TOKENS.colors.textPrimary,
-                  marginBottom: DESIGN_TOKENS.spacing.md,
-                }}
-              >
-                Lain-lain
-              </Text>
-              <View
-                style={{
-                  flexDirection: 'row',
-                  flexWrap: 'wrap',
-                  justifyContent: 'space-between',
-                }}
-              >
-                {/* Example Feature Button */}
+              <Text style={styles.cardTitle}>Lain-lain</Text>
+              <View style={styles.otherFeaturesGrid}>
                 <TouchableOpacity
-                  style={{
-                    width: '48%',
-                    marginBottom: DESIGN_TOKENS.spacing.md,
-                    borderRadius: DESIGN_TOKENS.borderRadius.md,
-                    backgroundColor: DESIGN_TOKENS.colors.glassInputBg,
-                    borderWidth: 0.5,
-                    borderColor: DESIGN_TOKENS.colors.glassBorder,
-                    padding: DESIGN_TOKENS.spacing.md,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
+                  style={[styles.featureButton, styles.glassButton]}
                   onPress={() => handleOtherFeature('Slip Gaji')}
                 >
-                  <Feather
-                    name='dollar-sign'
-                    size={30}
-                    color={DESIGN_TOKENS.colors.textPrimary}
-                  />
-                  <Text
-                    style={{
-                      ...DESIGN_TOKENS.typography.caption,
-                      color: DESIGN_TOKENS.colors.textSecondary,
-                      marginTop: DESIGN_TOKENS.spacing.xs,
-                    }}
-                  >
-                    Slip Gaji
-                  </Text>
+                  <Feather name='dollar-sign' size={30} color='#FFF' />
+                  <Text style={styles.featureButtonText}>Slip Gaji</Text>
                 </TouchableOpacity>
-
-                {/* Example Feature Button */}
                 <TouchableOpacity
-                  style={{
-                    width: '48%',
-                    marginBottom: DESIGN_TOKENS.spacing.md,
-                    borderRadius: DESIGN_TOKENS.borderRadius.md,
-                    backgroundColor: DESIGN_TOKENS.colors.glassInputBg,
-                    borderWidth: 0.5,
-                    borderColor: DESIGN_TOKENS.colors.glassBorder,
-                    padding: DESIGN_TOKENS.spacing.md,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
+                  style={[styles.featureButton, styles.glassButton]}
                   onPress={() => handleOtherFeature('Informasi Proyek')}
                 >
-                  <Feather
-                    name='briefcase'
-                    size={30}
-                    color={DESIGN_TOKENS.colors.textPrimary}
-                  />
-                  <Text
-                    style={{
-                      ...DESIGN_TOKENS.typography.caption,
-                      color: DESIGN_TOKENS.colors.textSecondary,
-                      marginTop: DESIGN_TOKENS.spacing.xs,
-                    }}
-                  >
-                    Info Proyek
-                  </Text>
+                  <Feather name='briefcase' size={30} color='#FFF' />
+                  <Text style={styles.featureButtonText}>Info Proyek</Text>
                 </TouchableOpacity>
-
-                {/* Add more feature buttons as needed */}
                 <TouchableOpacity
-                  style={{
-                    width: '48%',
-                    marginBottom: DESIGN_TOKENS.spacing.md,
-                    borderRadius: DESIGN_TOKENS.borderRadius.md,
-                    backgroundColor: DESIGN_TOKENS.colors.glassInputBg,
-                    borderWidth: 0.5,
-                    borderColor: DESIGN_TOKENS.colors.glassBorder,
-                    padding: DESIGN_TOKENS.spacing.md,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
+                  style={[styles.featureButton, styles.glassButton]}
                   onPress={() => handleOtherFeature('Pengaturan')}
                 >
-                  <Feather
-                    name='settings'
-                    size={30}
-                    color={DESIGN_TOKENS.colors.textPrimary}
-                  />
-                  <Text
-                    style={{
-                      ...DESIGN_TOKENS.typography.caption,
-                      color: DESIGN_TOKENS.colors.textSecondary,
-                      marginTop: DESIGN_TOKENS.spacing.xs,
-                    }}
-                  >
-                    Pengaturan
-                  </Text>
+                  <Feather name='settings' size={30} color='#FFF' />
+                  <Text style={styles.featureButtonText}>Pengaturan</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={{
-                    width: '48%',
-                    marginBottom: DESIGN_TOKENS.spacing.md,
-                    borderRadius: DESIGN_TOKENS.borderRadius.md,
-                    backgroundColor: DESIGN_TOKENS.colors.glassInputBg,
-                    borderWidth: 0.5,
-                    borderColor: DESIGN_TOKENS.colors.glassBorder,
-                    padding: DESIGN_TOKENS.spacing.md,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
+                  style={[styles.featureButton, styles.glassButton]}
                   onPress={() => handleOtherFeature('Notifikasi')}
                 >
-                  <Feather
-                    name='bell'
-                    size={30}
-                    color={DESIGN_TOKENS.colors.textPrimary}
-                  />
-                  <Text
-                    style={{
-                      ...DESIGN_TOKENS.typography.caption,
-                      color: DESIGN_TOKENS.colors.textSecondary,
-                      marginTop: DESIGN_TOKENS.spacing.xs,
-                    }}
-                  >
-                    Notifikasi
-                  </Text>
+                  <Feather name='bell' size={30} color='#FFF' />
+                  <Text style={styles.featureButtonText}>Notifikasi</Text>
                 </TouchableOpacity>
               </View>
             </BlurView>
@@ -679,3 +438,124 @@ export default function Home() {
     </ImageBackground>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  blurContainer: {
+    flex: 1,
+    paddingTop: StatusBar.currentHeight || 80,
+  },
+  scrollViewContent: {
+    flexGrow: 1,
+    paddingHorizontal: 16,
+    paddingBottom: 80,
+  },
+  header: {
+    marginBottom: 32,
+    marginTop: 8,
+  },
+  greetingText: {
+    color: '#FFF',
+    fontSize: 30,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  dateText: {
+    color: '#A0AEC0',
+    fontSize: 14,
+    fontWeight: '300',
+  },
+  timeText: {
+    color: '#FFF',
+    fontSize: 20,
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  cardContainer: {
+    marginBottom: 16,
+  },
+  card: {
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: 'rgba(0, 0, 0, 0.2)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  glassCard: {
+    backgroundColor: 'rgba(50, 50, 50, 0.2)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  cardTitle: {
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  statusIcon: {
+    marginRight: 8,
+  },
+  statusText: {
+    color: '#A0AEC0',
+    fontSize: 16,
+  },
+  button: {
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  buttonDisabled: {
+    opacity: 0.7,
+  },
+  buttonGradient: {
+    height: 56,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
+  },
+  buttonIcon: {
+    marginRight: 8,
+  },
+  buttonText: {
+    color: '#FFF',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  cardBody: {
+    color: '#A0AEC0',
+    fontSize: 14,
+    fontWeight: '300',
+    marginBottom: 16,
+  },
+  otherFeaturesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  featureButton: {
+    width: '48%',
+    marginBottom: 16,
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  glassButton: {
+    backgroundColor: 'rgba(50, 50, 50, 0.3)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  featureButtonText: {
+    color: '#A0AEC0',
+    fontSize: 12,
+    marginTop: 4,
+  },
+});
