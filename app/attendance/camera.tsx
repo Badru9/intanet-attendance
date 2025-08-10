@@ -20,7 +20,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { getCaptureCallback } from '../../../utils/callbackStore';
+import { getCaptureCallback } from '../../utils/callbackStore';
 
 export default function AttendanceCameraScreen() {
   const router = useRouter();

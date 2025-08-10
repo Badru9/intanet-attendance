@@ -33,6 +33,28 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
+      ],
+      [
+        "expo-asset",
+        [
+          {
+            "assets": [
+              "./assets/images/background.png",
+              "./assets/images/intanet.png"
+            ]
+          }
+        ]
+      ],
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "node_modules/@expo-google-fonts/urbanist/300Light/Urbanist_300Light.ttf",
+            "node_modules/@expo-google-fonts/urbanist/400Regular/Urbanist_400Regular.ttf",
+            "node_modules/@expo-google-fonts/urbanist/500Medium/Urbanist_500Medium.ttf",
+            "node_modules/@expo-google-fonts/urbanist/600SemiBold/Urbanist_600SemiBold.ttf"
+          ]
+        }
       ]
     ],
     "experiments": {

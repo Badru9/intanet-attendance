@@ -22,6 +22,9 @@ module.exports = {
           'blue-border': 'rgba(59, 130, 246, 0.4)',
         },
       },
+      fontFamily: {
+        urbanist: ['Urbanist', 'sans-serif'],
+      },
       backdropBlur: {
         xs: '2px',
         sm: '4px',

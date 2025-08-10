@@ -1,29 +1,19 @@
 // app/_layout.tsx
-
-import { Slot } from 'expo-router';
+import { TabBar } from '@/components/TabBar';
+import { Feather } from '@expo/vector-icons';
+import { Tabs } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
-import { Text, View } from 'react-native';
-import '../global.css';
-
-// Import Context Providers
-// Ini adalah contoh, Anda mungkin perlu membuatnya terlebih dahulu.
+import { Dimensions, Text, View } from 'react-native';
 import { AuthProvider } from '../../contexts/authContext';
 import { ThemeProvider } from '../../contexts/themeContext';
-
-// Import custom hooks jika ada logic inisialisasi yang kompleks
 import { useSetupApp } from '../../hooks/useSetupApp';
+import '../global.css';
 
-// Root layout untuk seluruh aplikasi
 export default function RootLayout() {
-  // Gunakan custom hook untuk inisialisasi
-  // Ini bisa mencakup:
-  // - Memuat user dari AsyncStorage
-  // - Memeriksa status autentikasi
-  // - Memuat data awal lainnya
   const { isLoading, error } = useSetupApp();
+  const windowWidth = Dimensions.get('window').width;
 
-  // Tampilkan loading screen saat aplikasi sedang inisialisasi
   if (isLoading) {
     return (
       <View
@@ -34,14 +24,12 @@ export default function RootLayout() {
           backgroundColor: '#000',
         }}
       >
-        <Text style={{ color: '#FFF' }}>Memuat Aplikasi...</Text>
+        <Text style={{ color: '#FFF' }}>Memuat aplikasi...</Text>
       </View>
     );
   }
 
-  // Tangani error jika terjadi saat inisialisasi
   if (error) {
-    // Tampilkan pesan error yang lebih informatif atau UI khusus
     return (
       <View
         style={{
@@ -58,16 +46,45 @@ export default function RootLayout() {
     );
   }
 
-  // Wrapper untuk Context Providers
   return (
     <ThemeProvider>
       <AuthProvider>
-        {/*
-          Slot adalah placeholder di mana rute-rute anak (child routes)
-          akan dirender. Semua rute di dalam `app/` akan di-render di sini.
-        */}
-        <Slot />
         <StatusBar style='light' />
+        <Tabs tabBar={(props) => <TabBar {...props} />}>
+          <Tabs.Screen
+            name='home'
+            options={{
+              tabBarIcon: ({ color }) => (
+                <Feather size={28} name='home' color={color} />
+              ),
+              tabBarLabel: 'Home',
+              headerShown: false,
+              title: 'home',
+            }}
+          />
+          <Tabs.Screen
+            name='leave'
+            options={{
+              tabBarIcon: ({ color }) => (
+                <Feather size={28} name='calendar' color={color} />
+              ),
+              tabBarLabel: 'Leave',
+              headerShown: false,
+              title: 'calendar',
+            }}
+          />
+          <Tabs.Screen
+            name='profile'
+            options={{
+              tabBarIcon: ({ color }) => (
+                <Feather size={28} name='user' color={color} />
+              ),
+              tabBarLabel: 'Profile',
+              headerShown: false,
+              title: 'user',
+            }}
+          />
+        </Tabs>
       </AuthProvider>
     </ThemeProvider>
   );

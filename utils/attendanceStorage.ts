@@ -1,5 +1,5 @@
 // utils/attendanceStorage.ts
-// Kode yang diperbarui untuk memastikan pengembalian nilai yang konsisten
+// Kode yang diperbarui untuk menyertakan waktu clockIn dan clockOut
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -10,11 +10,13 @@ export type AttendanceRecord = {
   date: string;
   clockInStatus: 'completed' | 'pending';
   clockOutStatus: 'completed' | 'pending';
+  clockInTime: string | null;
+  clockOutTime: string | null;
 };
 
 /**
  * Mendapatkan status presensi untuk hari ini.
- * Akan membuat record baru jika belum ada.
+ * Akan membuat record baru jika belum ada atau jika sudah ganti hari.
  */
 export const getAttendanceStatus = async (): Promise<AttendanceRecord> => {
   try {
@@ -35,6 +37,8 @@ export const getAttendanceStatus = async (): Promise<AttendanceRecord> => {
       date: today,
       clockInStatus: 'pending',
       clockOutStatus: 'pending',
+      clockInTime: null,
+      clockOutTime: null,
     };
     return newRecord;
   } catch (error) {
@@ -44,6 +48,8 @@ export const getAttendanceStatus = async (): Promise<AttendanceRecord> => {
       date: new Date().toISOString().slice(0, 10),
       clockInStatus: 'pending',
       clockOutStatus: 'pending',
+      clockInTime: null,
+      clockOutTime: null,
     };
   }
 };

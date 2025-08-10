@@ -1,5 +1,4 @@
 import { Feather } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Link, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -7,7 +6,7 @@ import {
   Alert,
   Animated,
   Dimensions,
-  ImageBackground,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -40,10 +39,6 @@ interface LoginPayload {
   email: string;
   password: string;
 }
-
-// Latar belakang yang sama untuk konsistensi
-const BACKGROUND_IMAGE_URI =
-  'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1200&auto=format&fit=crop&q=80';
 
 type FeatherIconName = 'mail' | 'lock' | 'eye' | 'eye-off' | 'loader';
 
@@ -226,21 +221,17 @@ export default function LoginScreen() {
           transform: [{ translateY: anim }],
         }}
       >
-        <BlurView
-          intensity={Platform.OS === 'ios' ? 15 : 12}
-          tint='systemMaterialDark'
+        <View
           style={{
             borderRadius: DESIGN_TOKENS.borderRadius.md,
             overflow: 'hidden',
-            backgroundColor: isFocused
-              ? DESIGN_TOKENS.colors.glassInputFocused
-              : DESIGN_TOKENS.colors.glassInputBg,
+            backgroundColor: DESIGN_TOKENS.colors.background,
             borderWidth: 1,
             borderColor: hasError
               ? DESIGN_TOKENS.colors.error
               : isFocused
                 ? DESIGN_TOKENS.colors.primary
-                : DESIGN_TOKENS.colors.glassBorder,
+                : DESIGN_TOKENS.colors.border,
             shadowColor: isFocused
               ? DESIGN_TOKENS.colors.primary
               : 'rgba(0,0,0,0.1)',
@@ -257,16 +248,6 @@ export default function LoginScreen() {
               height: 56,
             }}
           >
-            <Feather
-              name={icon}
-              size={20}
-              color={
-                isFocused
-                  ? DESIGN_TOKENS.colors.primary
-                  : DESIGN_TOKENS.colors.textSecondary
-              }
-              style={{ marginRight: DESIGN_TOKENS.spacing.sm }} // Use DESIGN_TOKENS
-            />
             <TextInput
               style={{
                 flex: 1,
@@ -274,7 +255,7 @@ export default function LoginScreen() {
                 color: DESIGN_TOKENS.colors.textPrimary,
               }}
               placeholder={placeholder}
-              placeholderTextColor={DESIGN_TOKENS.colors.textPlaceholder}
+              placeholderTextColor={DESIGN_TOKENS.colors.textSecondary}
               value={value}
               onChangeText={onChangeText}
               onFocus={() => setFocusedField(fieldId)}
@@ -300,7 +281,7 @@ export default function LoginScreen() {
               </TouchableOpacity>
             )}
           </View>
-        </BlurView>
+        </View>
         {hasError && (
           <Text
             style={{
@@ -328,16 +309,10 @@ export default function LoginScreen() {
         backgroundColor='transparent'
       />
 
-      <ImageBackground
-        source={{ uri: BACKGROUND_IMAGE_URI }}
-        style={{ flex: 1 }}
-        resizeMode='cover'
+      <View
+        style={{ flex: 1, backgroundColor: DESIGN_TOKENS.colors.background }}
       >
-        <BlurView
-          intensity={Platform.OS === 'ios' ? 20 : 15}
-          tint='dark'
-          style={{ flex: 1 }}
-        >
+        <View style={{ flex: 1 }}>
           <ScrollView
             contentContainerStyle={{
               flexGrow: 1,
@@ -356,190 +331,175 @@ export default function LoginScreen() {
                 alignSelf: 'center',
               }}
             >
-              <BlurView
-                intensity={Platform.OS === 'ios' ? 30 : 25}
-                tint='systemMaterialDark'
-                style={{
-                  borderRadius: DESIGN_TOKENS.borderRadius.xl,
-                  overflow: 'hidden',
-                  backgroundColor: DESIGN_TOKENS.colors.glassBg,
-                  borderWidth: 0.5,
-                  borderColor: DESIGN_TOKENS.colors.glassBorder,
-                  shadowColor: 'rgba(0, 0, 0, 0.3)',
-                  shadowOffset: { width: 0, height: 8 },
-                  shadowOpacity: 0.3,
-                  shadowRadius: 20,
-                }}
-              >
-                <View style={{ padding: DESIGN_TOKENS.spacing.xl }}>
-                  <Animated.View
+              <View style={{ padding: DESIGN_TOKENS.spacing.xl }}>
+                <Animated.View
+                  style={{
+                    alignItems: 'center',
+                    marginBottom: DESIGN_TOKENS.spacing.xxl,
+                    transform: [{ translateY: headerAnim }],
+                  }}
+                >
+                  <Image
+                    source={require('@/assets/images/intanet.png')}
+                    style={{ width: 80, height: 80, marginBottom: 20 }}
+                  />
+                  <Text
                     style={{
-                      alignItems: 'center',
-                      marginBottom: DESIGN_TOKENS.spacing.xxl,
-                      transform: [{ translateY: headerAnim }],
+                      ...DESIGN_TOKENS.typography.h1,
+                      color: DESIGN_TOKENS.colors.textPrimary,
+                      textAlign: 'center',
+                      fontFamily: DESIGN_TOKENS.typography.baseText.fontFamily,
                     }}
                   >
-                    <Text
-                      style={{
-                        ...DESIGN_TOKENS.typography.h1, // Use h1 from DESIGN_TOKENS
-                        color: DESIGN_TOKENS.colors.textPrimary,
-                        textAlign: 'center',
-                      }}
-                    >
-                      Selamat Datang
-                    </Text>
-                    <Text
-                      style={{
-                        ...DESIGN_TOKENS.typography.caption, // Use subtitle from DESIGN_TOKENS
-                        color: DESIGN_TOKENS.colors.textSecondary,
-                        textAlign: 'center',
-                        marginTop: DESIGN_TOKENS.spacing.sm,
-                      }}
-                    >
-                      Masuk untuk melanjutkan
-                    </Text>
-                  </Animated.View>
+                    Selamat Datang Kembali
+                  </Text>
+                </Animated.View>
 
-                  {/* Email Input */}
-                  {renderInput(
-                    'email',
-                    email,
-                    (text) => {
-                      setEmail(text);
-                      if (emailError) validateEmail(text);
-                    },
-                    () => validateEmail(email),
-                    'Email',
-                    'mail',
-                    emailError,
-                    inputAnimRefs[0],
-                    false
-                  )}
+                {/* Email Input */}
+                {renderInput(
+                  'email',
+                  email,
+                  (text) => {
+                    setEmail(text);
+                    if (emailError) validateEmail(text);
+                  },
+                  () => validateEmail(email),
+                  'Email',
+                  'mail',
+                  emailError,
+                  inputAnimRefs[0],
+                  false
+                )}
 
-                  {/* Password Input */}
-                  {renderInput(
-                    'password',
-                    password,
-                    (text) => {
-                      setPassword(text);
-                      if (passwordError) validatePassword(text);
-                    },
-                    () => validatePassword(password),
-                    'Password',
-                    'lock',
-                    passwordError,
-                    inputAnimRefs[1],
-                    true,
-                    showPassword,
-                    () => setShowPassword(!showPassword)
-                  )}
+                {/* Password Input */}
+                {renderInput(
+                  'password',
+                  password,
+                  (text) => {
+                    setPassword(text);
+                    if (passwordError) validatePassword(text);
+                  },
+                  () => validatePassword(password),
+                  'Password',
+                  'lock',
+                  passwordError,
+                  inputAnimRefs[1],
+                  true,
+                  showPassword,
+                  () => setShowPassword(!showPassword)
+                )}
 
+                <TouchableOpacity
+                  style={{
+                    alignItems: 'flex-end',
+                    marginBottom: DESIGN_TOKENS.spacing.lg,
+                    transform: [{ translateY: buttonAnim }],
+                  }}
+                  onPress={() =>
+                    Alert.alert(
+                      'Lupa Password?',
+                      'Fitur ini akan segera tersedia.'
+                    )
+                  }
+                >
+                  <Text
+                    style={{
+                      ...DESIGN_TOKENS.typography.caption,
+                      fontWeight: '400',
+                      color: DESIGN_TOKENS.colors.primary,
+                    }}
+                  >
+                    Lupa Password?
+                  </Text>
+                </TouchableOpacity>
+
+                <Animated.View
+                  style={{
+                    transform: [{ translateY: buttonAnim }],
+                    marginBottom: DESIGN_TOKENS.spacing.lg,
+                  }}
+                >
                   <TouchableOpacity
-                    style={{
-                      alignItems: 'flex-end',
-                      marginBottom: DESIGN_TOKENS.spacing.lg,
-                    }}
-                    onPress={() =>
-                      Alert.alert(
-                        'Lupa Password?',
-                        'Fitur ini akan segera tersedia.'
-                      )
-                    }
+                    disabled={isLoading}
+                    onPress={handleLogin}
+                    activeOpacity={0.8}
                   >
-                    <Text
+                    <LinearGradient
+                      colors={[DESIGN_TOKENS.colors.primary, '#0056CC']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
                       style={{
-                        ...DESIGN_TOKENS.typography.caption,
-                        fontWeight: '400',
-                        color: DESIGN_TOKENS.colors.primary,
+                        borderRadius: DESIGN_TOKENS.borderRadius.md,
+                        height: 56,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        flexDirection: 'row',
+                        shadowColor: DESIGN_TOKENS.colors.primary,
+                        shadowOffset: { width: 0, height: 4 },
+                        shadowOpacity: 0.3,
+                        shadowRadius: 12,
+                        opacity: isLoading ? 0.8 : 1,
                       }}
                     >
-                      Lupa Password?
-                    </Text>
-                  </TouchableOpacity>
-
-                  <Animated.View
-                    style={{
-                      transform: [{ translateY: buttonAnim }],
-                      marginBottom: DESIGN_TOKENS.spacing.lg,
-                    }}
-                  >
-                    <TouchableOpacity
-                      disabled={isLoading}
-                      onPress={handleLogin}
-                      activeOpacity={0.8}
-                    >
-                      <LinearGradient
-                        colors={[DESIGN_TOKENS.colors.primary, '#0056CC']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
+                      {isLoading && (
+                        <Animated.View
+                          style={{ marginRight: DESIGN_TOKENS.spacing.sm }}
+                        >
+                          <Feather
+                            name='loader'
+                            size={20}
+                            color={DESIGN_TOKENS.colors.textTertiary}
+                          />
+                        </Animated.View>
+                      )}
+                      <Text
                         style={{
-                          borderRadius: DESIGN_TOKENS.borderRadius.md,
-                          height: 56,
-                          justifyContent: 'center',
-                          alignItems: 'center',
-                          flexDirection: 'row',
-                          shadowColor: DESIGN_TOKENS.colors.primary,
-                          shadowOffset: { width: 0, height: 4 },
-                          shadowOpacity: 0.3,
-                          shadowRadius: 12,
-                          opacity: isLoading ? 0.8 : 1,
+                          ...DESIGN_TOKENS.typography.button,
+                          color: DESIGN_TOKENS.colors.textTertiary,
                         }}
                       >
-                        {isLoading && (
-                          <Animated.View
-                            style={{ marginRight: DESIGN_TOKENS.spacing.sm }}
-                          >
-                            <Feather
-                              name='loader'
-                              size={20}
-                              color={DESIGN_TOKENS.colors.textOnButton}
-                            />
-                          </Animated.View>
-                        )}
+                        {isLoading ? 'Memproses...' : 'Masuk'}
+                      </Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </Animated.View>
+
+                <Animated.View
+                  style={{
+                    alignItems: 'center',
+                    transform: [{ translateY: buttonAnim }],
+                  }}
+                >
+                  <Link href='/register' asChild>
+                    <TouchableOpacity activeOpacity={0.7}>
+                      <View style={{ flexDirection: 'row' }}>
                         <Text
                           style={{
-                            ...DESIGN_TOKENS.typography.button,
-                            color: DESIGN_TOKENS.colors.textOnButton,
+                            ...DESIGN_TOKENS.typography.caption,
+                            fontWeight: '400',
+                            color: DESIGN_TOKENS.colors.textPrimary,
                           }}
                         >
-                          {isLoading ? 'Memproses...' : 'Masuk'}
+                          Belum memiliki akun?{' '}
                         </Text>
-                      </LinearGradient>
+                        <Text
+                          style={{
+                            ...DESIGN_TOKENS.typography.caption,
+                            fontWeight: '600',
+                            color: DESIGN_TOKENS.colors.primary,
+                          }}
+                        >
+                          Daftar
+                        </Text>
+                      </View>
                     </TouchableOpacity>
-                  </Animated.View>
-
-                  <View style={{ alignItems: 'center' }}>
-                    <Link href='/register' asChild>
-                      <TouchableOpacity activeOpacity={0.7}>
-                        <View style={{ flexDirection: 'row' }}>
-                          <Text
-                            style={{
-                              ...DESIGN_TOKENS.typography.caption,
-                              fontWeight: '400',
-                              color: DESIGN_TOKENS.colors.textSecondary,
-                            }}
-                          >
-                            Belum punya akun?{' '}
-                          </Text>
-                          <Text
-                            style={{
-                              ...DESIGN_TOKENS.typography.caption,
-                              fontWeight: '600',
-                              color: DESIGN_TOKENS.colors.primary,
-                            }}
-                          >
-                            Daftar Sekarang
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    </Link>
-                  </View>
-                </View>
-              </BlurView>
+                  </Link>
+                </Animated.View>
+              </View>
             </Animated.View>
           </ScrollView>
-        </BlurView>
-      </ImageBackground>
+        </View>
+      </View>
     </KeyboardAvoidingView>
   );
 }
