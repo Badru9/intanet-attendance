@@ -250,6 +250,8 @@ export default function Home() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle='dark-content' translucent />
+
+      {/* Header */}
       <View style={styles.header}>
         <Image
           source={{ uri: 'https://placehold.co/100x100/png' }}
@@ -260,38 +262,48 @@ export default function Home() {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.content}>
-        <Text style={styles.currentTimeText}>{currentTime}</Text>
-        <Text style={styles.currentDateText}>{currentDate}</Text>
+      {/* Main Content */}
+      <View style={styles.mainContent}>
+        {/* Time and Date Section */}
+        <View style={styles.timeSection}>
+          <Text style={styles.currentTimeText}>{currentTime}</Text>
+          <Text style={styles.currentDateText}>{currentDate}</Text>
+        </View>
 
-        <TouchableOpacity
-          onPress={buttonProps.onPress}
-          disabled={buttonProps.disabled}
-          style={styles.mainButtonContainer}
-        >
-          <Animated.View
-            style={[
-              styles.mainButtonBackground,
-              {
-                backgroundColor: buttonProps.colors[0],
-                transform: [{ scale: animatedScale }],
-              },
-            ]}
+        {/* Attendance Button */}
+        <View style={styles.buttonSection}>
+          <TouchableOpacity
+            onPress={buttonProps.onPress}
+            disabled={buttonProps.disabled}
+            style={styles.mainButtonContainer}
           >
-            <View style={styles.mainButtonInner}>
-              <Text style={styles.mainButtonText}>{buttonProps.text}</Text>
-            </View>
-          </Animated.View>
-        </TouchableOpacity>
+            <Animated.View
+              style={[
+                styles.mainButtonBackground,
+                {
+                  backgroundColor: buttonProps.colors[0],
+                  transform: [{ scale: animatedScale }],
+                },
+              ]}
+            >
+              <View style={styles.mainButtonInner}>
+                <Text style={styles.mainButtonText}>{buttonProps.text}</Text>
+              </View>
+            </Animated.View>
+          </TouchableOpacity>
+        </View>
 
-        <View style={styles.attendanceSummary}>
-          <View style={styles.summaryItem}>
-            <Text style={styles.summaryTitle}>Masuk</Text>
-            <Text style={styles.summaryTime}>{attendanceTimes.clockIn}</Text>
-          </View>
-          <View style={styles.summaryItem}>
-            <Text style={styles.summaryTitle}>Pulang</Text>
-            <Text style={styles.summaryTime}>{attendanceTimes.clockOut}</Text>
+        {/* Attendance Summary */}
+        <View style={styles.summarySection}>
+          <View style={styles.attendanceSummary}>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryTitle}>Masuk</Text>
+              <Text style={styles.summaryTime}>{attendanceTimes.clockIn}</Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryTitle}>Pulang</Text>
+              <Text style={styles.summaryTime}>{attendanceTimes.clockOut}</Text>
+            </View>
           </View>
         </View>
       </View>
@@ -310,6 +322,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 60,
+    paddingBottom: 20,
   },
   profileImage: {
     width: 48,
@@ -319,29 +332,36 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
   },
   calendarButton: {
-    backgroundColor: '#F7FAFC',
-    padding: 10,
-    borderRadius: 12,
+    borderColor: '#E5E7EB',
+    borderWidth: 1,
+    padding: 15,
+    borderRadius: 50,
   },
-  content: {
+  mainContent: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
     paddingHorizontal: 20,
   },
+  timeSection: {
+    alignItems: 'center',
+    marginTop: 60,
+    marginBottom: 80,
+  },
   currentTimeText: {
-    fontSize: 50,
+    fontSize: 56,
     fontWeight: '300',
     color: '#000',
+    letterSpacing: -2,
   },
   currentDateText: {
     fontSize: 16,
     color: '#718096',
     marginTop: 8,
   },
+  buttonSection: {
+    alignItems: 'center',
+    marginBottom: 80,
+  },
   mainButtonContainer: {
-    marginTop: 40,
-    marginBottom: 40,
     width: 200,
     height: 200,
     borderRadius: 100,
@@ -370,10 +390,15 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
   },
+  summarySection: {
+    flex: 1,
+    justifyContent: 'flex-start',
+  },
   attendanceSummary: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    width: '80%',
+    paddingHorizontal: 40,
+    marginTop: 40,
   },
   summaryItem: {
     alignItems: 'center',
@@ -387,21 +412,5 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#000',
     marginTop: 4,
-  },
-  bottomNav: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    backgroundColor: '#000',
-    paddingVertical: 15,
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-  },
-  navItem: {
-    paddingHorizontal: 20,
   },
 });

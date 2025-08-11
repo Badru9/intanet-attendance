@@ -57,7 +57,6 @@ export default function RootLayout() {
               tabBarIcon: ({ color }) => (
                 <Feather size={28} name='home' color={color} />
               ),
-              tabBarLabel: 'Home',
               headerShown: false,
               title: 'home',
             }}
@@ -68,7 +67,6 @@ export default function RootLayout() {
               tabBarIcon: ({ color }) => (
                 <Feather size={28} name='calendar' color={color} />
               ),
-              tabBarLabel: 'Leave',
               headerShown: false,
               title: 'calendar',
             }}
@@ -79,7 +77,6 @@ export default function RootLayout() {
               tabBarIcon: ({ color }) => (
                 <Feather size={28} name='user' color={color} />
               ),
-              tabBarLabel: 'Profile',
               headerShown: false,
               title: 'user',
             }}
