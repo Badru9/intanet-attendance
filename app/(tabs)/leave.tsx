@@ -1,9 +1,16 @@
+import {
+  getLeaveData,
+  LeaveItem,
+  LeaveStatus,
+  LeaveType,
+} from '@/utils/leaveStorage';
 import { Feather } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   Alert,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -13,96 +20,38 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-// Tipe data untuk navigasi
-// type RootStackParamList = {
-//   LeaveList: undefined;
-//   CreateLeave: undefined;
-//   LeaveDetail: { leaveId: string };
-// };
-
-type LeaveType = 'All' | 'Liburan' | 'Cuti' | 'Sakit';
-
-type LeaveStatus = 'Sedang Diproses' | 'Disetujui' | 'Ditolak';
-
-interface LeaveItem {
-  id: string;
-  type: Exclude<LeaveType, 'All'>; // Remove 'All' from individual items
-  title: string;
-  dateRange: string;
-  status: LeaveStatus;
-  month: string;
-  year: string;
-  reason?: string;
-  submittedDate?: string;
-}
-
-const leaveData: LeaveItem[] = [
-  {
-    id: '1',
-    type: 'Liburan',
-    title: 'Liburan Keluarga',
-    dateRange: 'Kamis 7 Agustus - Minggu 10 Agustus',
-    status: 'Sedang Diproses',
-    month: 'Agustus',
-    year: '2025',
-    reason: 'Berlibur bersama keluarga ke Bali',
-    submittedDate: '2025-08-01',
-  },
-  {
-    id: '2',
-    type: 'Sakit',
-    title: 'Sakit',
-    dateRange: 'Senin 7 Juli - Kamis 10 Juli',
-    status: 'Disetujui',
-    month: 'Juli',
-    year: '2025',
-    reason: 'Demam tinggi dan perlu istirahat',
-    submittedDate: '2025-07-06',
-  },
-  {
-    id: '3',
-    type: 'Liburan',
-    title: 'Liburan Keluarga',
-    dateRange: 'Kamis 7 Juni - Minggu 10 Juni',
-    status: 'Ditolak',
-    month: 'Juni',
-    year: '2025',
-    reason: 'Liburan akhir tahun',
-    submittedDate: '2025-06-01',
-  },
-  {
-    id: '4',
-    type: 'Cuti',
-    title: 'Cuti Tahunan',
-    dateRange: 'Senin 5 Mei - Jumat 9 Mei',
-    status: 'Disetujui',
-    month: 'Mei',
-    year: '2025',
-    reason: 'Menggunakan cuti tahunan',
-    submittedDate: '2025-04-25',
-  },
-  {
-    id: '5',
-    type: 'Liburan',
-    title: 'Liburan Lebaran',
-    dateRange: 'Selasa 1 April - Kamis 3 April',
-    status: 'Disetujui',
-    month: 'April',
-    year: '2025',
-    reason: 'Mudik lebaran ke kampung halaman',
-    submittedDate: '2025-03-20',
-  },
-];
+// Tipe data untuk filter, termasuk 'All'
+type LeaveFilterType = 'All' | LeaveType;
 
 export default function LeaveListScreen() {
-  const [selectedFilter, setSelectedFilter] = useState<LeaveType>('All');
-
-  const navigation = useNavigation();
-  const insets = useSafeAreaInsets();
+  const [selectedFilter, setSelectedFilter] = useState<LeaveFilterType>('All');
+  const [leaveData, setLeaveData] = useState<LeaveItem[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
 
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
-  const filterButtons: LeaveType[] = ['All', 'Liburan', 'Cuti', 'Sakit'];
+  const filterButtons: LeaveFilterType[] = ['All', 'Liburan', 'Cuti', 'Sakit'];
+
+  const fetchLeaveData = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const data = await getLeaveData();
+      setLeaveData(data);
+    } catch (error) {
+      console.error('Failed to fetch leave data:', error);
+      Alert.alert('Error', 'Gagal memuat data cuti.');
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  // Gunakan useFocusEffect untuk memuat data setiap kali halaman fokus
+  useFocusEffect(
+    useCallback(() => {
+      fetchLeaveData();
+    }, [fetchLeaveData])
+  );
 
   const getStatusColor = (status: LeaveStatus): string => {
     switch (status) {
@@ -117,11 +66,7 @@ export default function LeaveListScreen() {
     }
   };
 
-  const getStatusTextColor = (status: LeaveStatus): string => {
-    return '#FFFFFF';
-  };
-
-  const getTypeColor = (type: Exclude<LeaveType, 'All'>): string => {
+  const getTypeColor = (type: LeaveType): string => {
     switch (type) {
       case 'Liburan':
         return '#007AFF';
@@ -132,6 +77,11 @@ export default function LeaveListScreen() {
       default:
         return '#007AFF';
     }
+  };
+
+  const getLeaveCount = (type: LeaveFilterType): number => {
+    if (type === 'All') return leaveData.length;
+    return leaveData.filter((item) => item.type === type).length;
   };
 
   const filteredData =
@@ -152,34 +102,14 @@ export default function LeaveListScreen() {
   );
 
   const handleAddLeave = () => {
-    try {
-      // navigation.navigate('CreateLeave');
-      router.push('/leave/create-leave');
-    } catch (error) {
-      console.error('Navigation error:', error);
-      Alert.alert('Error', 'Tidak dapat membuka halaman tambah cuti');
-    }
+    router.push('/leave/create-leave');
   };
 
   const handleLeaveItemPress = (item: LeaveItem) => {
-    try {
-      // Navigate to detail screen or show more info
-      // navigation.navigate('LeaveDetail', { leaveId: item.id });
-      router.push(`/leave/${item.id}`);
-    } catch (error) {
-      console.error('Navigation error:', error);
-      // Fallback: show alert with details
-      Alert.alert(
-        item.title,
-        `${item.dateRange}\nStatus: ${item.status}\nAlasan: ${item.reason || 'Tidak ada keterangan'}`,
-        [{ text: 'OK' }]
-      );
-    }
-  };
-
-  const getLeaveCount = (type: LeaveType): number => {
-    if (type === 'All') return leaveData.length;
-    return leaveData.filter((item) => item.type === type).length;
+    router.push({
+      pathname: '/leave/[id]',
+      params: { id: item.id },
+    });
   };
 
   return (
@@ -188,6 +118,9 @@ export default function LeaveListScreen() {
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior='automatic'
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={fetchLeaveData} />
+        }
       >
         {/* Header */}
         <View style={styles.header}>
@@ -246,17 +179,14 @@ export default function LeaveListScreen() {
           ) : (
             Object.entries(groupedData)
               .sort(([a], [b]) => {
-                // Sort by year and month (newest first)
                 const [monthA, yearA] = a.split(' ');
                 const [monthB, yearB] = b.split(' ');
                 if (yearA !== yearB) return parseInt(yearB) - parseInt(yearA);
-                // Simple month comparison - could be improved with proper date parsing
                 return monthB.localeCompare(monthA);
               })
               .map(([monthYear, items]) => (
                 <View key={monthYear} style={styles.monthSection}>
                   <Text style={styles.monthTitle}>{monthYear}</Text>
-
                   {items.map((item) => (
                     <TouchableOpacity
                       key={item.id}
@@ -281,16 +211,12 @@ export default function LeaveListScreen() {
                           ]}
                         >
                           <Text
-                            style={[
-                              styles.statusText,
-                              { color: getStatusTextColor(item.status) },
-                            ]}
+                            style={[styles.statusText, { color: '#FFFFFF' }]}
                           >
                             {item.status}
                           </Text>
                         </View>
                       </View>
-
                       <View style={styles.cardFooter}>
                         <View
                           style={[
@@ -307,7 +233,6 @@ export default function LeaveListScreen() {
                             {item.type}
                           </Text>
                         </View>
-
                         {item.submittedDate && (
                           <Text style={styles.submittedDate}>
                             Diajukan:{' '}

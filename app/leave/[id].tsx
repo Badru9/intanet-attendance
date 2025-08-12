@@ -1,10 +1,18 @@
 // app/(tabs)/leave/[id].tsx
-// Dynamic route for leave detail
-
-import { AntDesign, Feather } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React from 'react';
+import CustomConfirmationModal from '@/components/ConfirmationDialog';
 import {
+  deleteLeaveItem,
+  getLeaveItemById,
+  LeaveItem,
+  LeaveStatus,
+} from '@/utils/leaveStorage';
+import { AntDesign, Feather } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -14,61 +22,34 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-// Sample data - in real app, fetch based on id
-const getLeaveDetail = (id: string) => {
-  const sampleData: Record<string, any> = {
-    '1': {
-      id: '1',
-      type: 'Liburan',
-      title: 'Liburan Keluarga',
-      dateRange: 'Kamis 7 Agustus - Minggu 10 Agustus',
-      status: 'Sedang Diproses',
-      reason:
-        'Berlibur bersama keluarga ke Bali untuk refreshing setelah project besar selesai.',
-      submittedDate: '2025-08-01',
-      totalDays: 4,
-      approver: 'John Doe (Manager)',
-      submittedBy: 'Jane Smith',
-    },
-    '2': {
-      id: '2',
-      type: 'Sakit',
-      title: 'Sakit',
-      dateRange: 'Senin 7 Juli - Kamis 10 Juli',
-      status: 'Disetujui',
-      reason: 'Demam tinggi dan perlu istirahat total.',
-      submittedDate: '2025-07-06',
-      totalDays: 4,
-      approver: 'John Doe (Manager)',
-      submittedBy: 'Jane Smith',
-    },
-    // Add more sample data...
-  };
-
-  return (
-    sampleData[id] || {
-      id,
-      type: 'Liburan',
-      title: 'Leave Detail',
-      dateRange: 'Tidak diketahui',
-      status: 'Sedang Diproses',
-      reason: 'Detail tidak tersedia',
-      submittedDate: new Date().toISOString().split('T')[0],
-      totalDays: 1,
-      approver: 'Manager',
-      submittedBy: 'Karyawan',
-    }
-  );
-};
-
 export default function LeaveDetailScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams();
+  const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
 
-  const leaveDetail = getLeaveDetail(id as string);
+  const [leaveDetail, setLeaveDetail] = useState<LeaveItem | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isModalVisible, setModalVisible] = useState(false);
 
-  const getStatusColor = (status: string) => {
+  const fetchLeaveDetail = async () => {
+    if (!id) {
+      setLeaveDetail(null);
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    const data = await getLeaveItemById(id);
+    setLeaveDetail(data || null);
+    setIsLoading(false);
+  };
+
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchLeaveDetail();
+    }, [id])
+  );
+
+  const getStatusColor = (status: LeaveStatus) => {
     switch (status) {
       case 'Sedang Diproses':
         return '#FF9500';
@@ -82,13 +63,54 @@ export default function LeaveDetailScreen() {
   };
 
   const handleCancelLeave = () => {
-    // TODO: Implement cancel leave functionality
-    console.log('Cancel leave:', id);
-    // Show confirmation dialog, then call API
+    setModalVisible(true); // Tampilkan modal
   };
 
+  const handleConfirmCancel = async () => {
+    setModalVisible(false); // Tutup modal saat user menekan 'Yakin'
+    try {
+      if (id) {
+        await deleteLeaveItem(id);
+        Alert.alert('Sukses', 'Pengajuan cuti berhasil dibatalkan.');
+        router.back();
+      }
+    } catch (error) {
+      console.error('Failed to delete leave item:', error);
+      Alert.alert('Error', 'Gagal membatalkan pengajuan cuti.');
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <View style={styles.centeredContainer}>
+        <ActivityIndicator size='large' color='#007AFF' />
+        <Text style={{ marginTop: 10 }}>Memuat detail cuti...</Text>
+      </View>
+    );
+  }
+
+  if (!leaveDetail) {
+    return (
+      <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backButton}
+          >
+            <AntDesign name='arrowleft' size={24} color='#000' />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Detail Cuti</Text>
+          <View style={styles.headerRight} />
+        </View>
+        <View style={styles.centeredContainer}>
+          <Text style={styles.notFoundText}>Data cuti tidak ditemukan.</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={{ ...styles.container, paddingTop: insets.top }}>
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -120,9 +142,8 @@ export default function LeaveDetailScreen() {
               </View>
             </View>
             <Text style={styles.dateRange}>{leaveDetail.dateRange}</Text>
-            <Text style={styles.totalDays}>
-              {leaveDetail.totalDays} hari kerja
-            </Text>
+            {/* Tampilkan total hari hanya jika data ada */}
+            {/* <Text style={styles.totalDays}>{leaveDetail.totalDays} hari kerja</Text> */}
           </View>
 
           {/* Details */}
@@ -134,16 +155,7 @@ export default function LeaveDetailScreen() {
                 'id-ID'
               )}
             />
-            <DetailRow
-              icon='user'
-              title='Diajukan oleh'
-              value={leaveDetail.submittedBy}
-            />
-            <DetailRow
-              icon='check-circle'
-              title='Approver'
-              value={leaveDetail.approver}
-            />
+            {/* ... DetailRows lainnya bisa ditambahkan sesuai kebutuhan */}
             <DetailRow icon='tag' title='Tipe Cuti' value={leaveDetail.type} />
           </View>
 
@@ -169,6 +181,14 @@ export default function LeaveDetailScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* Modal konfirmasi kustom */}
+      <CustomConfirmationModal
+        isVisible={isModalVisible}
+        title='Apakah Anda yakin ingin membatalkan pengajuan cuti ini?'
+        onConfirm={handleConfirmCancel}
+        onCancel={() => setModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -192,6 +212,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',
+  },
+  centeredContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  notFoundText: {
+    fontSize: 16,
+    color: '#999',
   },
   header: {
     flexDirection: 'row',

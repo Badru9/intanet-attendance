@@ -1,11 +1,11 @@
-// app/(tabs)/leave/create.tsx
-// Copy the updated CreateLeaveScreen code here
-
+import CustomConfirmationModal from '@/components/ConfirmationDialog';
+import { addLeaveItem, LeaveItem, LeaveType } from '@/utils/leaveStorage';
 import { AntDesign } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
+  Alert,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -20,9 +20,7 @@ import {
 import { Calendar, DateData } from 'react-native-calendars';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-// Tipe data untuk tipe cuti yang tersedia
-type LeaveType = 'Liburan' | 'Cuti' | 'Sakit';
-
+// Tipe data untuk props CustomTextInput
 interface CustomTextInputProps extends TextInputProps {
   label: string;
   multiline?: boolean;
@@ -30,18 +28,29 @@ interface CustomTextInputProps extends TextInputProps {
   containerStyle?: ViewStyle;
 }
 
-const CustomTextInput: React.FC<CustomTextInputProps> = ({
-  label,
-  ...props
-}) => (
-  <View style={styles.inputContainer}>
-    <Text style={styles.label}>{label}</Text>
-    <TextInput
-      style={[styles.textInput, props.multiline && styles.reasonInput]}
-      {...props}
-    />
-  </View>
-);
+// Helper function untuk format tanggal ke bahasa Indonesia
+const formatDatesToRange = (dates: string[]): string => {
+  const sortedDates = dates.sort();
+  if (sortedDates.length === 0) return '';
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const options: Intl.DateTimeFormatOptions = {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+    };
+    return date.toLocaleDateString('id-ID', options);
+  };
+
+  if (sortedDates.length === 1) {
+    return formatDate(sortedDates[0]);
+  }
+
+  const firstDate = sortedDates[0];
+  const lastDate = sortedDates[sortedDates.length - 1];
+  return `${formatDate(firstDate)} - ${formatDate(lastDate)}`;
+};
 
 export default function CreateLeaveScreen() {
   const router = useRouter();
@@ -50,9 +59,10 @@ export default function CreateLeaveScreen() {
   const [reason, setReason] = useState<string>('');
   const [selectedDates, setSelectedDates] = useState({});
 
+  const [isModalVisible, setModalVisible] = useState(false);
+
   const insets = useSafeAreaInsets();
 
-  // Fix: DateData is the correct type for react-native-calendars
   const handleDayPress = (day: DateData) => {
     const newSelectedDates: any = { ...selectedDates };
     if (newSelectedDates[day.dateString]) {
@@ -69,24 +79,49 @@ export default function CreateLeaveScreen() {
 
   const handleAjukanCuti = () => {
     const selectedDatesArray = Object.keys(selectedDates);
-    console.log('Tipe Cuti:', selectedLeaveType);
-    console.log('Alasan:', reason);
-    console.log('Tanggal Terpilih:', selectedDatesArray);
 
-    // Validasi data sebelum submit
+    // Validasi data
     if (!reason.trim()) {
-      alert('Mohon isi alasan cuti');
+      Alert.alert('Peringatan', 'Mohon isi alasan cuti.');
       return;
     }
 
     if (selectedDatesArray.length === 0) {
-      alert('Mohon pilih tanggal cuti');
+      Alert.alert('Peringatan', 'Mohon pilih tanggal cuti.');
       return;
     }
 
-    // TODO: Implement API call untuk submit data
-    // Setelah berhasil submit, kembali ke halaman list
-    router.back();
+    // Tampilkan modal, jangan langsung proses
+    setModalVisible(true);
+  };
+
+  const handleConfirm = async () => {
+    setModalVisible(false); // Tutup modal
+    try {
+      // Logika penyimpanan data
+      const selectedDatesArray = Object.keys(selectedDates);
+      const dateRange = formatDatesToRange(selectedDatesArray);
+      const firstDate = new Date(selectedDatesArray.sort()[0]);
+      const month = firstDate.toLocaleString('id-ID', { month: 'long' });
+      const year = firstDate.getFullYear().toString();
+
+      const newLeaveData: Omit<LeaveItem, 'id' | 'submittedDate' | 'status'> = {
+        type: selectedLeaveType,
+        title: 'Pengajuan Cuti',
+        dateRange: dateRange,
+        month: month,
+        year: year,
+        reason: reason,
+      };
+
+      await addLeaveItem(newLeaveData);
+
+      Alert.alert('Sukses', 'Pengajuan cuti berhasil diajukan.');
+      router.back();
+    } catch (error) {
+      console.error('Error saat mengajukan cuti:', error);
+      Alert.alert('Error', 'Terjadi kesalahan saat mengajukan cuti.');
+    }
   };
 
   return (
@@ -120,7 +155,7 @@ export default function CreateLeaveScreen() {
                 style={styles.picker}
                 mode='dropdown'
               >
-                <Picker.Item label='Tipe Cuti' value='' color='#999' />
+                <Picker.Item label='Pilih Tipe Cuti' value='' color='#999' />
                 <Picker.Item label='Liburan' value='Liburan' />
                 <Picker.Item label='Cuti' value='Cuti' />
                 <Picker.Item label='Sakit' value='Sakit' />
@@ -180,7 +215,6 @@ export default function CreateLeaveScreen() {
                 textDayHeaderFontSize: 13,
               }}
               style={styles.calendar}
-              // Tambahan props untuk customization
               hideExtraDays={true}
               firstDay={1}
               enableSwipeMonths={true}
@@ -199,6 +233,11 @@ export default function CreateLeaveScreen() {
           <Text style={styles.submitButtonText}>Ajukan Cuti</Text>
         </TouchableOpacity>
       </View>
+      <CustomConfirmationModal
+        isVisible={isModalVisible}
+        onConfirm={handleConfirm}
+        onCancel={() => setModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -206,7 +245,7 @@ export default function CreateLeaveScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#FAFAFA',
   },
   header: {
     flexDirection: 'row',
@@ -272,29 +311,31 @@ const styles = StyleSheet.create({
   },
   textInput: {
     borderWidth: 1,
-    borderColor: '#E5E5E5',
-    borderRadius: 12,
+    borderColor: '#E5E7EB',
+    borderRadius: 16,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FAFAFA',
     fontSize: 16,
-    color: '#333333',
+    color: '#6B7280',
     minHeight: 56,
   },
   reasonInput: {
     minHeight: 100,
     textAlignVertical: 'top',
     paddingTop: 16,
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E5E7EB',
+    borderWidth: 1,
+    borderRadius: 16,
   },
   calendarContainer: {
-    borderRadius: 12,
+    borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: '#FFFFFF',
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    padding: 10,
+    borderColor: '#E5E7EB',
+    borderWidth: 1,
   },
   calendar: {
     borderRadius: 12,
@@ -306,16 +347,14 @@ const styles = StyleSheet.create({
     borderTopColor: '#E5E5E5',
   },
   submitButton: {
-    backgroundColor: '#007AFF',
-    paddingVertical: 16,
+    backgroundColor: '#2563EB',
+    paddingVertical: 6,
     paddingHorizontal: 24,
-    borderRadius: 12,
+    marginBottom: 30,
+    borderRadius: 50,
     alignItems: 'center',
-    elevation: 2,
-    shadowColor: '#007AFF',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    width: 'auto',
+    alignSelf: 'center',
   },
   submitButtonText: {
     color: '#FFFFFF',
