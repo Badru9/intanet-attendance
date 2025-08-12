@@ -2,6 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { PlatformPressable } from '@react-navigation/elements';
 import { useLinkBuilder, useTheme } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { JSX, useEffect } from 'react';
 import { Dimensions, StyleSheet, View } from 'react-native';
 import Animated, {
@@ -46,7 +47,12 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   });
 
   return (
-    <View style={styles.tabBar}>
+    <LinearGradient
+      colors={['#999999', '#FAFAFA']}
+      start={{ x: 0, y: 1 }}
+      end={{ x: 0, y: 0 }}
+      style={styles.tabBar}
+    >
       <View style={styles.tabBarContainer}>
         {/* Background slider yang bergerak */}
         <Animated.View
@@ -89,7 +95,7 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
           );
         })}
       </View>
-    </View>
+    </LinearGradient>
   );
 }
 
@@ -150,13 +156,14 @@ const AnimatedTabBarItem = ({
 const styles = StyleSheet.create({
   tabBar: {
     position: 'absolute',
-    bottom: 50,
+    bottom: 0,
     left: 0,
     right: 0,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
+    paddingBottom: 50,
   },
   tabBarContainer: {
     position: 'relative',
@@ -167,11 +174,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: CONTAINER_PADDING,
     borderRadius: 50,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowRadius: 10,
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 2 },
+    borderColor: '#E0E0E0',
+    borderWidth: 1,
     gap: 20,
   },
   backgroundSlider: {

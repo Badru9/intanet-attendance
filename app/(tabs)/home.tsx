@@ -254,7 +254,7 @@ export default function Home() {
       {/* Header */}
       <View style={styles.header}>
         <Image
-          source={{ uri: 'https://placehold.co/100x100/png' }}
+          source={{ uri: 'https://i.pravatar.cc/150?img=50' }}
           style={styles.profileImage}
         />
         <TouchableOpacity style={styles.calendarButton}>
@@ -314,7 +314,7 @@ export default function Home() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF',
+    backgroundColor: '#FAFAFA',
   },
   header: {
     flexDirection: 'row',

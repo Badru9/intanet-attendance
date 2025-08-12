@@ -179,7 +179,7 @@ export default function LoginScreen() {
           duration: 200,
           useNativeDriver: true,
         }).start(() => {
-          router.navigate('/(tabs)/main/Home');
+          router.navigate('/home');
         });
       } else {
         Alert.alert(

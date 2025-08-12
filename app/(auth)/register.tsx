@@ -348,7 +348,7 @@ export default function RegisterScreen() {
           duration: 200,
           useNativeDriver: true,
         }).start(() => {
-          router.navigate('/(tabs)/main/Home'); // Navigate to the main tab group index
+          router.navigate('/home'); // Navigate to the main tab group index
         });
       } else {
         // Handle API-specific error messages
