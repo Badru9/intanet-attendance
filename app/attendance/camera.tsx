@@ -1,5 +1,4 @@
 // app/attendance/camera.tsx
-// Kode lengkap dengan perbaikan tombol, logika flash, dan desain glassmorphism pada pratinjau.
 
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -9,6 +8,7 @@ import {
   FlashMode,
   useCameraPermissions,
 } from 'expo-camera';
+import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -22,18 +22,101 @@ import {
 } from 'react-native';
 import { getCaptureCallback } from '../../utils/callbackStore';
 
+// Mengambil waktu saat ini dalam format yang mudah dibaca
+const getCurrentTimeFormatted = () => {
+  const now = new Date();
+  const hours = now.getHours().toString().padStart(2, '0');
+  const minutes = now.getMinutes().toString().padStart(2, '0');
+  const seconds = now.getSeconds().toString().padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
+};
+
 export default function AttendanceCameraScreen() {
   const router = useRouter();
-  const [permission, requestPermission] = useCameraPermissions();
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [locationPermission, requestLocationPermission] =
+    Location.useForegroundPermissions();
   const [isReady, setIsReady] = useState(false);
   const [capturedPhotoUri, setCapturedPhotoUri] = useState<string | null>(null);
   const [flashMode, setFlashMode] = useState<FlashMode>('off');
   const [cameraType, setCameraType] = useState<CameraType>('front');
+  const [currentTime, setCurrentTime] = useState<string>(
+    getCurrentTimeFormatted()
+  );
+  const [locationString, setLocationString] =
+    useState<string>('Mencari lokasi...');
+
+  // State untuk menyimpan data saat foto diambil
+  const [captureData, setCaptureData] = useState<{
+    time: string;
+    location: string;
+  } | null>(null);
+
   const cameraRef = useRef<CameraView>(null);
+  const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    requestPermission();
+    // Meminta izin kamera dan lokasi saat komponen pertama kali dimuat
+    const getPermissions = async () => {
+      await requestCameraPermission();
+      await requestLocationPermission();
+      if (locationPermission?.granted) {
+        updateLocation();
+      }
+    };
+    getPermissions();
   }, []);
+
+  useEffect(() => {
+    // Memperbarui waktu setiap detik hanya jika foto belum diambil
+    if (!capturedPhotoUri) {
+      timerRef.current = setInterval(() => {
+        setCurrentTime(getCurrentTimeFormatted());
+      }, 1000) as number;
+    } else {
+      // Hentikan timer saat foto sudah diambil
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+  }, [capturedPhotoUri]);
+
+  // Update lokasi secara berkala ketika kamera aktif
+  useEffect(() => {
+    if (!capturedPhotoUri && locationPermission?.granted) {
+      const locationUpdateInterval = setInterval(() => {
+        updateLocation();
+      }, 5000); // Update setiap 5 detik
+
+      return () => clearInterval(locationUpdateInterval);
+    }
+  }, [capturedPhotoUri, locationPermission?.granted]);
+
+  const updateLocation = async () => {
+    if (!locationPermission?.granted) {
+      setLocationString('Izin lokasi tidak diberikan');
+      return;
+    }
+    try {
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.BestForNavigation,
+      });
+      const { latitude, longitude } = location.coords;
+      setLocationString(
+        `Lat: ${latitude.toFixed(4)} \nLon: ${longitude.toFixed(4)}`
+      );
+    } catch (e) {
+      console.error('Error saat mendapatkan lokasi:', e);
+      setLocationString('Gagal mendapatkan lokasi.');
+    }
+  };
 
   const onCameraReady = () => {
     setIsReady(true);
@@ -44,11 +127,27 @@ export default function AttendanceCameraScreen() {
       Alert.alert('Kamera belum siap.');
       return;
     }
+    if (!locationPermission?.granted) {
+      Alert.alert(
+        'Izin lokasi diperlukan',
+        'Mohon berikan izin lokasi untuk melanjutkan.'
+      );
+      return;
+    }
     setIsReady(false);
     try {
+      // Ambil waktu dan lokasi tepat saat foto diambil
+      const captureTime = getCurrentTimeFormatted();
+      await updateLocation(); // Pastikan lokasi terbaru
+
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.7 });
       if (photo) {
         setCapturedPhotoUri(photo.uri);
+        // Simpan data capture untuk digunakan nanti
+        setCaptureData({
+          time: captureTime,
+          location: locationString,
+        });
       }
     } catch (e) {
       console.error('Error saat mengambil foto:', e);
@@ -58,15 +157,19 @@ export default function AttendanceCameraScreen() {
   };
 
   const handleUsePhoto = async () => {
-    if (!capturedPhotoUri) {
+    if (!capturedPhotoUri || !captureData) {
       Alert.alert('Pratinjau tidak ada.');
       return;
     }
     try {
-      const locationString = `Lat: -6.1754, Lon: 106.8272`;
       const captureCallback = getCaptureCallback();
       if (captureCallback) {
-        captureCallback(capturedPhotoUri, locationString, 'Catatan dari user');
+        // Gunakan data yang disimpan saat foto diambil
+        captureCallback(
+          capturedPhotoUri,
+          captureData.location,
+          'Catatan dari user'
+        );
       } else {
         Alert.alert('Error', 'Callback presensi tidak ditemukan.');
       }
@@ -75,13 +178,18 @@ export default function AttendanceCameraScreen() {
       console.error('Error saat memproses presensi:', e);
       Alert.alert('Gagal', 'Terjadi kesalahan saat memproses presensi.');
       setCapturedPhotoUri(null);
+      setCaptureData(null);
       setIsReady(true);
     }
   };
 
   const handleRetake = () => {
     setCapturedPhotoUri(null);
+    setCaptureData(null);
     setIsReady(true);
+    // Mulai lagi update waktu dan lokasi
+    setCurrentTime(getCurrentTimeFormatted());
+    updateLocation();
   };
 
   const toggleFlash = () => {
@@ -102,7 +210,6 @@ export default function AttendanceCameraScreen() {
   const toggleCameraType = () => {
     setCameraType((currentType) => {
       if (currentType === 'back') {
-        // Jika beralih ke kamera depan, matikan flash
         setFlashMode('off');
         return 'front';
       }
@@ -124,25 +231,51 @@ export default function AttendanceCameraScreen() {
 
   const topPosition = Platform.OS === 'ios' ? 60 : 40;
 
-  if (!permission) {
+  if (!cameraPermission || !locationPermission) {
     return <View />;
   }
 
-  if (!permission.granted) {
+  if (!cameraPermission.granted || !locationPermission.granted) {
     return (
       <View style={styles.permissionContainer}>
         <Text style={styles.permissionText}>
-          Kami membutuhkan izin akses kamera untuk melakukan presensi.
+          Kami membutuhkan izin akses kamera dan lokasi untuk presensi.
         </Text>
         <TouchableOpacity
           style={styles.permissionButton}
-          onPress={requestPermission}
+          onPress={() => {
+            requestCameraPermission();
+            requestLocationPermission();
+          }}
         >
           <Text style={styles.permissionButtonText}>Berikan Izin</Text>
         </TouchableOpacity>
       </View>
     );
   }
+
+  const OverlayTimeLocation = () => (
+    <View style={[styles.timeLocationOverlay]}>
+      <BlurView intensity={40} tint='dark' style={styles.infoBlur}>
+        <Text
+          style={{
+            ...styles.infoText,
+            fontSize: 20,
+            fontWeight: 'semibold',
+            marginBottom: 8,
+          }}
+        >
+          PT Intan Digital Internet ( INTANET )
+        </Text>
+        <Text style={styles.infoText}>
+          {captureData ? captureData.time : currentTime}
+        </Text>
+        <Text style={styles.infoText}>
+          {captureData ? captureData.location : locationString}
+        </Text>
+      </BlurView>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
@@ -153,6 +286,7 @@ export default function AttendanceCameraScreen() {
             style={styles.previewImage}
             resizeMode='cover'
           />
+          <OverlayTimeLocation />
           <View style={styles.previewActionsContainer}>
             <BlurView
               intensity={30}
@@ -161,10 +295,9 @@ export default function AttendanceCameraScreen() {
             >
               <TouchableOpacity
                 onPress={handleRetake}
-                style={styles.previewButton}
+                style={{ ...styles.previewButton, backgroundColor: '#EF4444' }}
               >
-                <Feather name='x-circle' size={28} color='#FFF' />
-                <Text style={styles.previewButtonText}>Ambil Ulang</Text>
+                <Feather name='x' size={28} color='#FFF' />
               </TouchableOpacity>
             </BlurView>
             <BlurView
@@ -174,10 +307,9 @@ export default function AttendanceCameraScreen() {
             >
               <TouchableOpacity
                 onPress={handleUsePhoto}
-                style={styles.previewButton}
+                style={{ ...styles.previewButton, backgroundColor: '#10B981' }}
               >
-                <Feather name='check-circle' size={28} color='#10B981' />
-                <Text style={styles.previewButtonText}>Gunakan Foto</Text>
+                <Feather name='check' size={28} color='#FFF' />
               </TouchableOpacity>
             </BlurView>
           </View>
@@ -191,14 +323,12 @@ export default function AttendanceCameraScreen() {
             facing={cameraType}
             flash={flashMode}
           />
-
           <View style={[styles.topControls, { top: topPosition }]}>
             <BlurView intensity={40} tint='dark' style={styles.blurContainer}>
               <TouchableOpacity onPress={() => router.back()}>
                 <Feather name='arrow-left' size={24} color='#FFF' />
               </TouchableOpacity>
             </BlurView>
-
             <View style={styles.topRightControls}>
               {cameraType === 'back' && (
                 <BlurView
@@ -215,7 +345,6 @@ export default function AttendanceCameraScreen() {
                   </TouchableOpacity>
                 </BlurView>
               )}
-
               <BlurView intensity={40} tint='dark' style={styles.blurContainer}>
                 <TouchableOpacity onPress={toggleCameraType}>
                   <Feather
@@ -227,13 +356,7 @@ export default function AttendanceCameraScreen() {
               </BlurView>
             </View>
           </View>
-
-          <View style={[styles.infoOverlay, { top: topPosition + 60 }]}>
-            <BlurView intensity={40} tint='dark' style={styles.infoBlur}>
-              <Text style={styles.infoText}>Ambil gambar untuk Laporan</Text>
-            </BlurView>
-          </View>
-
+          <OverlayTimeLocation />
           <View style={styles.captureButtonContainer}>
             <TouchableOpacity
               onPress={handleCapture}
@@ -298,8 +421,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   previewButton: {
-    paddingVertical: 12,
+    marginBottom: 50,
+    paddingVertical: 16,
     paddingHorizontal: 16,
+    borderRadius: 50,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -321,6 +446,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
+  timeLocationOverlay: {
+    position: 'absolute',
+    left: 16,
+    bottom: 200,
+    zIndex: 10,
+  },
   blurContainer: {
     borderRadius: 9999,
     padding: 8,
@@ -339,7 +470,7 @@ const styles = StyleSheet.create({
   },
   infoText: {
     color: '#FFF',
-    fontSize: 16,
+    fontSize: 20,
   },
   captureButtonContainer: {
     position: 'absolute',

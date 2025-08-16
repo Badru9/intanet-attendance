@@ -12,7 +12,7 @@ type RegisterType = {
   password_confirmation: string;
 };
 
-type LoginResponse = {
+export type LoginResponse = {
   user: any;
   access_token: string;
   token_type: string;
@@ -24,8 +24,8 @@ const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL || 'https://your-ngrok-url.ngrok-free.app';
 
 export const login = async (data: AuthType): Promise<LoginResponse> => {
+  console.log('API Base URL:', API_BASE_URL);
   try {
-    console.log('API Base URL:', API_BASE_URL);
     console.log('Login data:', data);
 
     const response = await apiClient.post<LoginResponse>('/api/login', data);
@@ -71,6 +71,15 @@ export const register = async (data: RegisterType): Promise<LoginResponse> => {
 };
 
 export const logout = async (token: string): Promise<void> => {
+  console.log('Logging out with token:', token);
+  if (!token) {
+    throw new Error('No token provided for logout');
+  }
+
+  const url = '/api/logout';
+
+  console.log('Logout URL:', url);
+
   try {
     await apiClient.post(
       '/api/logout',

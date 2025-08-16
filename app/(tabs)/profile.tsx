@@ -1,7 +1,13 @@
+// src/app/(main)/profile.tsx
+import { useAuth } from '@/contexts/authContext';
+import { UserType } from '@/types';
+import { getUser } from '@/utils/user';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import React from 'react';
+import { router } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   SafeAreaView,
   StyleSheet,
@@ -11,16 +17,77 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+enum ScreenNames {
+  PersonalInformation = 'PersonalInformation',
+  ChangePassword = 'ChangePassword',
+  LogOut = 'LogOut',
+}
+
 export default function Profile() {
+  const [user, setUser] = useState<UserType>();
+
   const navigation = useNavigation();
-
   const insets = useSafeAreaInsets();
+  const { logout: handleLogout, isLoading } = useAuth();
 
-  const handlePress = (screenName: string) => {
-    // Anda bisa menavigasi ke layar lain di sini jika dibutuhkan
-    // navigation.navigate(screenName as never);
-    console.log(`Navigating to ${screenName}`);
+  // Fungsi spesifik untuk navigasi ke Personal Information
+  const handlePersonalInformation = () => {
+    console.log('Navigating to Personal Information screen');
+    // Tambahkan navigasi ke Personal Information di sini
+    // router.push('/personal-information');
   };
+
+  // Fungsi spesifik untuk navigasi ke Change Password
+  const handleChangePassword = () => {
+    console.log('Navigating to Change Password screen');
+    // Tambahkan navigasi ke Change Password di sini
+    // router.push('/change-password');
+  };
+
+  // Fungsi spesifik untuk Logout
+  const handleLogoutPress = async () => {
+    console.log('Logging out...');
+    try {
+      await handleLogout();
+      console.log('Logout successful, navigating to login.');
+      router.replace('/(auth)/login');
+    } catch (error) {
+      console.error('Logout failed:', error);
+      // Tetap alihkan meskipun terjadi error, karena data lokal sudah dihapus
+      router.replace('/(auth)/login');
+    }
+  };
+
+  const fetchUser = useCallback(async () => {
+    if (!isLoading) {
+      try {
+        const userData = await getUser();
+        console.log('Fetched user data:', userData);
+
+        if (userData) {
+          setUser(userData.user);
+        }
+        // console.log('Fetched user data:', userData.user);
+      } catch (error) {
+        console.error('Error fetching user data:', error);
+      }
+    }
+  }, [isLoading]);
+
+  useEffect(() => {
+    fetchUser();
+  }, [fetchUser]);
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size='large' color='#0000ff' />
+        <Text style={{ color: '#666', fontSize: 16, marginTop: 10 }}>
+          Memuat profil...
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={{ ...styles.container, paddingTop: insets.top }}>
@@ -29,27 +96,32 @@ export default function Profile() {
           source={{ uri: 'https://i.pravatar.cc/150?img=50' }}
           style={styles.profileImage}
         />
-        <Text style={styles.name}>Kaylynn Torff</Text>
-        <Text style={styles.position}>UI / UX Designer</Text>
+        <Text style={styles.name}>{user?.name}</Text>
+        <Text style={styles.position}>
+          {user?.is_admin !== 0 ? 'Direktur' : 'Karyawan'}
+        </Text>
       </View>
+
       <View style={styles.content}>
         <TouchableOpacity
           style={styles.menuItem}
-          onPress={() => handlePress('PersonalInformation')}
+          onPress={handlePersonalInformation}
         >
           <Text style={styles.menuText}>Personal Information</Text>
           <Feather name='chevron-right' size={20} color='#666' />
         </TouchableOpacity>
+
         <TouchableOpacity
           style={styles.menuItem}
-          onPress={() => handlePress('ChangePassword')}
+          onPress={handleChangePassword}
         >
           <Text style={styles.menuText}>Change Password</Text>
           <Feather name='chevron-right' size={20} color='#666' />
         </TouchableOpacity>
+
         <TouchableOpacity
           style={{ ...styles.menuItem, marginTop: 50 }}
-          onPress={() => handlePress('LogOut')}
+          onPress={handleLogoutPress}
         >
           <Text style={styles.menuText}>Logout</Text>
           <Feather name='log-out' size={20} color='#666' />

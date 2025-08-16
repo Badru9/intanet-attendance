@@ -19,7 +19,7 @@ export default function IndexPage() {
         // This could be checking AsyncStorage, SecureStore, etc.
         // Example:
         // const token = await AsyncStorage.getItem('authToken');
-        // const isValid = await validateToken(token);
+        // const isValid = await getCurrentUser(token!);
         // setIsAuthenticated(isValid);
 
         // For now, simulate auth check

@@ -17,6 +17,7 @@ import {
   View,
 } from 'react-native';
 
+import { saveToken } from '@/utils/token';
 import { DESIGN_TOKENS } from '../../constants/designTokens'; // Import DESIGN_TOKENS
 import { login } from '../../services/auth';
 import { saveUser } from '../../utils/user';
@@ -172,7 +173,8 @@ export default function LoginScreen() {
       console.log('Login response:', response);
 
       if (response.success && response.user) {
-        await saveUser(response.user);
+        await saveUser(response.user, response.access_token);
+        await saveToken(response.access_token);
 
         Animated.timing(scaleAnim, {
           toValue: 1.02,
