@@ -53,6 +53,7 @@ export default function LoginScreen() {
   const [passwordError, setPasswordError] = useState('');
   const [focusedField, setFocusedField] = useState<string | null>(null);
 
+  const spinValue = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
   const headerAnim = useRef(
@@ -69,6 +70,25 @@ export default function LoginScreen() {
   useEffect(() => {
     startEntranceAnimation();
   }, []);
+
+  const startSpinning = useCallback(() => {
+    spinValue.setValue(0);
+    Animated.loop(
+      Animated.timing(spinValue, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true,
+      })
+    ).start();
+  }, [spinValue]);
+
+  useEffect(() => {
+    if (isLoading) {
+      startSpinning();
+    } else {
+      spinValue.stopAnimation();
+    }
+  }, [isLoading, spinValue, startSpinning]);
 
   const startEntranceAnimation = (): void => {
     Animated.sequence([
@@ -300,6 +320,11 @@ export default function LoginScreen() {
     );
   };
 
+  const spin = spinValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -445,7 +470,10 @@ export default function LoginScreen() {
                     >
                       {isLoading && (
                         <Animated.View
-                          style={{ marginRight: DESIGN_TOKENS.spacing.sm }}
+                          style={{
+                            marginRight: DESIGN_TOKENS.spacing.sm,
+                            transform: [{ rotate: spin }],
+                          }}
                         >
                           <Feather
                             name='loader'

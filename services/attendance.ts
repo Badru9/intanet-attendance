@@ -1,12 +1,19 @@
 // app/services/attendance.ts
 
-import { apiClient } from './api'; // Pastikan apiClient ini sudah dikonfigurasi dengan baseURL
+import { getToken } from '@/utils/token';
+import * as FileSystem from 'expo-file-system';
 
-// Tipe data untuk payload attendance
+// Tipe data untuk payload attendance dan check-out
 type AttendancePayload = {
   location_check_in: string;
-  photo_check_in: string; // URL/URI lokal dari gambar
-  notes: string | null; // Notes bisa nullable
+  photo_check_in: string;
+  notes: string | null;
+};
+
+type CheckOutPayload = {
+  location_check_out: string;
+  photo_check_out: string;
+  notes: string | null;
 };
 
 // Tipe untuk respons sukses dari API
@@ -18,113 +25,160 @@ type AttendanceSuccessResponse = {
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL || 'https://your-ngrok-url.ngrok-free.app';
 
+/**
+ * Helper function to handle all XMLHttpRequest requests.
+ * Ensures consistent error handling and header setup.
+ */
+const makeRequest = (
+  method: 'POST' | 'PATCH',
+  url: string,
+  formData: FormData,
+  token: string
+): Promise<AttendanceSuccessResponse> => {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState !== 4) {
+        return;
+      }
+
+      console.log('XHR Status:', xhr.status);
+      console.log('XHR Response:', xhr.responseText);
+
+      try {
+        const responseData = JSON.parse(xhr.responseText || '{}');
+
+        if (xhr.status >= 200 && xhr.status < 300) {
+          if (responseData.success) {
+            resolve(responseData);
+          } else {
+            reject(
+              new Error(responseData.message || `API Error: ${xhr.status}`)
+            );
+          }
+        } else if (xhr.status === 422 && responseData.errors) {
+          // Handles Laravel validation errors
+          const firstErrorKey = Object.keys(responseData.errors)[0];
+          const firstErrorMessage = firstErrorKey
+            ? (responseData.errors[firstErrorKey] as string[])[0]
+            : 'Data yang Anda masukkan tidak valid.';
+          reject(new Error(firstErrorMessage));
+        } else {
+          // Handles other HTTP errors
+          reject(
+            new Error(responseData.message || `Server Error: ${xhr.status}`)
+          );
+        }
+      } catch (parseError) {
+        console.error('Response parsing error:', parseError);
+        reject(new Error('Invalid response format from server.'));
+      }
+    };
+
+    xhr.onerror = () => {
+      console.error('XHR Network Error');
+      reject(new Error('Network error. Check your internet connection.'));
+    };
+
+    xhr.ontimeout = () => {
+      console.error('XHR Timeout');
+      reject(new Error('Request timed out. Please try again.'));
+    };
+
+    xhr.timeout = 60000; // 60 seconds timeout
+    xhr.open(method, url, true);
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.setRequestHeader('ngrok-skip-browser-warning', 'true');
+
+    xhr.send(formData);
+  });
+};
+
+/**
+ * Function to handle user check-in.
+ * Prepares the FormData and calls the helper function.
+ */
 export const attendance = async (
   data: AttendancePayload
 ): Promise<AttendanceSuccessResponse> => {
-  try {
-    console.log('API Base URL:', API_BASE_URL);
-    console.log('Check In data received by service:', data);
-
-    // 1. Buat FormData untuk mengirim file dan data lainnya
-    const formData = new FormData();
-    formData.append('location_check_in', data.location_check_in);
-    if (data.notes) {
-      // notes adalah nullable di Laravel
-      formData.append('notes', data.notes);
-    }
-
-    // Mendapatkan nama file dari URI lokal untuk FormData
-    const filename = data.photo_check_in.split('/').pop();
-    const fileType = 'image/jpeg'; // Asumsikan JPEG, sesuaikan jika Anda punya deteksi tipe file yang lebih baik
-
-    // Menambahkan file ke FormData
-    formData.append('photo_check_in', {
-      uri: data.photo_check_in,
-      name: filename || 'photo_check_in.jpg', // Beri nama default jika filename tidak ada
-      type: fileType,
-    } as any); // Type assertion 'as any' karena FormData di React Native/web sedikit berbeda dengan Node.js
-
-    console.log('FormData prepared:', formData);
-
-    // 2. Kirim permintaan POST dengan Content-Type: multipart/form-data
-    // Axios akan secara otomatis mengatur Content-Type menjadi multipart/form-data
-    // saat Anda mengirim instance FormData.
-    const response = await apiClient.post<AttendanceSuccessResponse>(
-      '/api/attendances/check-in',
-      formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-        // Anda mungkin perlu timeout yang lebih besar untuk upload file
-        timeout: 30000, // 30 detik
-      }
-    );
-
-    console.log('Check In Successful', response.data);
-
-    // Periksa apakah operasi berhasil berdasarkan respons data
-    // ASUMSI: Server Laravel akan mengembalikan JSON { success: true, message: "..." }
-    if (!response.data.success) {
-      // Jika server mengembalikan success: false, lempar error
-      throw new Error(response.data.message || 'Check-in failed');
-    }
-
-    return response.data; // Mengembalikan respons data jika berhasil
-  } catch (error: any) {
-    console.error('Full error during check-in:', error); // Ubah log message
-    console.error('Error response data:', error.response?.data);
-    console.error('Error status:', error.response?.status);
-
-    let errorMessage = 'Terjadi kesalahan tidak dikenal. Silakan coba lagi.';
-
-    if (error.response) {
-      // Server merespons dengan status error (e.g., 4xx, 5xx)
-      const statusCode = error.response.status;
-      const responseData = error.response.data;
-
-      if (statusCode === 401) {
-        errorMessage =
-          responseData.message ||
-          'Sesi Anda telah habis atau tidak sah. Silakan login kembali.';
-      } else if (statusCode === 403) {
-        errorMessage =
-          responseData.message ||
-          'Anda tidak memiliki izin untuk melakukan aksi ini.';
-      } else if (statusCode === 422 && responseData.errors) {
-        // Handle Laravel validation errors
-        const validationErrors = responseData.errors;
-        // Ambil pesan error pertama dari validasi Laravel
-        const firstErrorKey = Object.keys(validationErrors)[0];
-        if (firstErrorKey) {
-          errorMessage = validationErrors[firstErrorKey][0];
-        } else {
-          errorMessage = 'Data yang Anda masukkan tidak valid.';
-        }
-      } else if (responseData.message) {
-        errorMessage = responseData.message; // Ambil pesan error umum dari server
-      } else {
-        errorMessage = `Server Error: ${statusCode}`;
-      }
-    } else if (error.request) {
-      // Request dibuat tapi tidak ada respons (e.g., network error, CORS issues)
-      errorMessage =
-        'Tidak dapat terhubung ke server. Periksa koneksi internet Anda.';
-    } else {
-      // Sesuatu terjadi saat menyiapkan request yang memicu error
-      errorMessage = error.message || 'Terjadi kesalahan tak terduga.';
-    }
-
-    // Custom error handling for specific Axios codes
-    if (error.code === 'ECONNABORTED') {
-      errorMessage = 'Permintaan terlalu lama. Periksa koneksi atau coba lagi.';
-    } else if (error.message && error.message.includes('Network Error')) {
-      // Specific for Axios network errors
-      errorMessage =
-        'Terjadi masalah jaringan. Pastikan Anda terhubung ke internet.';
-    }
-
-    // Akhirnya, lempar error baru dengan pesan yang lebih spesifik
-    throw new Error(errorMessage);
+  const token = await getToken();
+  if (!token) {
+    throw new Error('No authentication token found. Please log in.');
   }
+
+  const fileInfo = await FileSystem.getInfoAsync(data.photo_check_in);
+  if (!fileInfo.exists) {
+    throw new Error('File tidak ditemukan');
+  }
+
+  const formData = new FormData();
+  formData.append(
+    'location_check_in',
+    data.location_check_in.replace(/\n/g, ', ')
+  );
+  if (data.notes && data.notes.trim() !== '') {
+    formData.append('notes', data.notes.trim());
+  }
+
+  const filename =
+    data.photo_check_in.split('/').pop() || `attendance_${Date.now()}.jpg`;
+  formData.append('photo_check_in', {
+    uri: data.photo_check_in,
+    type: 'image/jpeg',
+    name: filename,
+  } as any);
+
+  console.log('Sending check-in request...');
+  return makeRequest(
+    'POST',
+    `${API_BASE_URL}/api/attendances/check-in`,
+    formData,
+    token
+  );
+};
+
+/**
+ * Function to handle user check-out.
+ * Prepares the FormData and calls the helper function.
+ */
+export const checkOut = async (
+  data: CheckOutPayload
+): Promise<AttendanceSuccessResponse> => {
+  const token = await getToken();
+  if (!token) {
+    throw new Error('No authentication token found. Please log in.');
+  }
+
+  const fileInfo = await FileSystem.getInfoAsync(data.photo_check_out);
+  if (!fileInfo.exists) {
+    throw new Error('File photo check-out tidak ditemukan.');
+  }
+
+  const formData = new FormData();
+  formData.append(
+    'location_check_out',
+    data.location_check_out.replace(/\n/g, ', ')
+  );
+  if (data.notes && data.notes.trim() !== '') {
+    formData.append('notes', data.notes.trim());
+  }
+
+  const filename =
+    data.photo_check_out.split('/').pop() || `checkout_${Date.now()}.jpg`;
+  formData.append('photo_check_out', {
+    uri: data.photo_check_out,
+    type: 'image/jpeg',
+    name: filename,
+  } as any);
+
+  console.log('Sending check-out request...');
+  // Kunci Perbaikan: Ubah metode dari 'PATCH' menjadi 'POST'
+  return makeRequest(
+    'POST',
+    `${API_BASE_URL}/api/attendances/check-out`,
+    formData,
+    token
+  );
 };

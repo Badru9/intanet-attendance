@@ -8,6 +8,8 @@ import {
   FlashMode,
   useCameraPermissions,
 } from 'expo-camera';
+import * as FileSystem from 'expo-file-system';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
@@ -45,6 +47,8 @@ export default function AttendanceCameraScreen() {
   );
   const [locationString, setLocationString] =
     useState<string>('Mencari lokasi...');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [fileSizeInfo, setFileSizeInfo] = useState<string>('');
 
   // State untuk menyimpan data saat foto diambil
   const [captureData, setCaptureData] = useState<{
@@ -54,6 +58,11 @@ export default function AttendanceCameraScreen() {
 
   const cameraRef = useRef<CameraView>(null);
   const timerRef = useRef<number | null>(null);
+
+  // Image manipulator hook - hanya aktif ketika ada foto
+  const imageManipulator = ImageManipulator.useImageManipulator(
+    capturedPhotoUri ?? ''
+  );
 
   useEffect(() => {
     // Meminta izin kamera dan lokasi saat komponen pertama kali dimuat
@@ -99,6 +108,39 @@ export default function AttendanceCameraScreen() {
     }
   }, [capturedPhotoUri, locationPermission?.granted]);
 
+  // Setup image manipulator ketika foto berhasil diambil
+  useEffect(() => {
+    if (capturedPhotoUri && imageManipulator) {
+      try {
+        // Setup transformasi untuk kompresi optimal
+        imageManipulator.reset(); // Reset ke state awal
+        imageManipulator.resize({ width: 1000 }); // Resize untuk mengurangi ukuran file
+      } catch (error) {
+        console.error('Error setting up image manipulator:', error);
+      }
+    }
+  }, [capturedPhotoUri, imageManipulator]);
+
+  // Fungsi untuk mengecek ukuran file
+  const getFileSize = async (uri: string): Promise<number> => {
+    try {
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      return fileInfo.exists ? fileInfo.size || 0 : 0;
+    } catch (error) {
+      console.error('Error getting file size:', error);
+      return 0;
+    }
+  };
+
+  // Fungsi untuk format ukuran file
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
   const updateLocation = async () => {
     if (!locationPermission?.granted) {
       setLocationString('Izin lokasi tidak diberikan');
@@ -140,9 +182,17 @@ export default function AttendanceCameraScreen() {
       const captureTime = getCurrentTimeFormatted();
       await updateLocation(); // Pastikan lokasi terbaru
 
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.7 });
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.8, // Kualitas awal yang baik
+        skipProcessing: false,
+      });
       if (photo) {
         setCapturedPhotoUri(photo.uri);
+
+        // Cek ukuran file asli
+        const originalSize = await getFileSize(photo.uri);
+        setFileSizeInfo(`Original: ${formatFileSize(originalSize)}`);
+
         // Simpan data capture untuk digunakan nanti
         setCaptureData({
           time: captureTime,
@@ -157,19 +207,70 @@ export default function AttendanceCameraScreen() {
   };
 
   const handleUsePhoto = async () => {
-    if (!capturedPhotoUri || !captureData) {
-      Alert.alert('Pratinjau tidak ada.');
+    if (!capturedPhotoUri || !captureData || !imageManipulator) {
+      Alert.alert('Pratinjau tidak ada atau gambar belum siap.');
       return;
     }
+
+    setIsProcessing(true);
+
     try {
       const captureCallback = getCaptureCallback();
       if (captureCallback) {
-        // Gunakan data yang disimpan saat foto diambil
-        captureCallback(
-          capturedPhotoUri,
-          captureData.location,
-          'Catatan dari user'
+        // Reset manipulator dan terapkan transformasi
+        imageManipulator.reset(); // Reset ke state awal
+
+        // Terapkan transformasi secara berurutan untuk optimasi ukuran
+        imageManipulator.resize({ width: 1000 }); // Resize untuk mengurangi ukuran
+
+        // Bisa tambah transformasi lain jika diperlukan:
+        // imageManipulator.rotate(0); // Rotasi jika diperlukan
+        // imageManipulator.crop({ x: 0, y: 0, width: 1000, height: 1000 }); // Crop jika diperlukan
+
+        // Render hasil manipulasi
+        const renderedImage = await imageManipulator.renderAsync();
+
+        // Save dengan kompresi tinggi untuk memastikan < 2MB
+        const finalImage = await renderedImage.saveAsync({
+          compress: 0.6, // Kompresi 60% untuk ukuran file kecil
+          format: ImageManipulator.SaveFormat.JPEG,
+        });
+
+        // Cek ukuran file hasil kompresi
+        const compressedSize = await getFileSize(finalImage.uri);
+        const originalSizeMatch = fileSizeInfo.match(/Original: (.+)/);
+
+        console.log(
+          `File size - Original: ${originalSizeMatch?.[1] || 'Unknown'}, Compressed: ${formatFileSize(compressedSize)}`
         );
+
+        // Jika masih lebih dari 2MB, kompresi ulang
+        const maxSizeInBytes = 2 * 1024 * 1024; // 2MB dalam bytes
+        let finalUri = finalImage.uri;
+
+        if (compressedSize > maxSizeInBytes) {
+          Alert.alert(
+            'Info',
+            `Ukuran file masih ${formatFileSize(compressedSize)}, melakukan kompresi tambahan...`
+          );
+
+          // Kompresi ulang dengan setting lebih agresif
+          imageManipulator.reset();
+          imageManipulator.resize({ width: 800 }); // Resize lebih kecil
+
+          const secondRender = await imageManipulator.renderAsync();
+          const secondCompress = await secondRender.saveAsync({
+            compress: 0.4, // Kompresi lebih tinggi
+            format: ImageManipulator.SaveFormat.JPEG,
+          });
+
+          const finalSize = await getFileSize(secondCompress.uri);
+          console.log(`Final compressed size: ${formatFileSize(finalSize)}`);
+          finalUri = secondCompress.uri;
+        }
+
+        // Kirim hasil ke callback
+        captureCallback(finalUri, captureData.location, 'Catatan dari user');
       } else {
         Alert.alert('Error', 'Callback presensi tidak ditemukan.');
       }
@@ -180,13 +281,17 @@ export default function AttendanceCameraScreen() {
       setCapturedPhotoUri(null);
       setCaptureData(null);
       setIsReady(true);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const handleRetake = () => {
     setCapturedPhotoUri(null);
     setCaptureData(null);
+    setFileSizeInfo('');
     setIsReady(true);
+    setIsProcessing(false);
     // Mulai lagi update waktu dan lokasi
     setCurrentTime(getCurrentTimeFormatted());
     updateLocation();
@@ -273,6 +378,11 @@ export default function AttendanceCameraScreen() {
         <Text style={styles.infoText}>
           {captureData ? captureData.location : locationString}
         </Text>
+        {fileSizeInfo && (
+          <Text style={{ ...styles.infoText, fontSize: 14, marginTop: 4 }}>
+            {fileSizeInfo}
+          </Text>
+        )}
       </BlurView>
     </View>
   );
@@ -288,31 +398,43 @@ export default function AttendanceCameraScreen() {
           />
           <OverlayTimeLocation />
           <View style={styles.previewActionsContainer}>
-            <BlurView
-              intensity={30}
-              tint='dark'
-              style={styles.blurPreviewButtonContainer}
-            >
+            <View style={styles.blurPreviewButtonContainer}>
               <TouchableOpacity
                 onPress={handleRetake}
                 style={{ ...styles.previewButton, backgroundColor: '#EF4444' }}
+                disabled={isProcessing}
               >
                 <Feather name='x' size={28} color='#FFF' />
               </TouchableOpacity>
-            </BlurView>
-            <BlurView
-              intensity={30}
-              tint='dark'
-              style={styles.blurPreviewButtonContainer}
-            >
+            </View>
+            <View style={styles.blurPreviewButtonContainer}>
               <TouchableOpacity
                 onPress={handleUsePhoto}
-                style={{ ...styles.previewButton, backgroundColor: '#10B981' }}
+                style={{
+                  ...styles.previewButton,
+                  backgroundColor: isProcessing ? '#6B7280' : '#10B981',
+                }}
+                disabled={isProcessing}
               >
-                <Feather name='check' size={28} color='#FFF' />
+                {isProcessing ? (
+                  <Feather name='loader' size={28} color='#FFF' />
+                ) : (
+                  <Feather name='check' size={28} color='#FFF' />
+                )}
               </TouchableOpacity>
-            </BlurView>
+            </View>
           </View>
+          {isProcessing && (
+            <View style={styles.processingOverlay}>
+              <BlurView
+                intensity={60}
+                tint='dark'
+                style={styles.processingBlur}
+              >
+                <Text style={styles.processingText}>Memproses gambar...</Text>
+              </BlurView>
+            </View>
+          )}
         </>
       ) : (
         <>
@@ -418,10 +540,11 @@ const styles = StyleSheet.create({
   },
   blurPreviewButtonContainer: {
     borderRadius: 12,
+    backgroundColor: 'transparent',
     overflow: 'hidden',
   },
   previewButton: {
-    marginBottom: 50,
+    marginBottom: 30,
     paddingVertical: 16,
     paddingHorizontal: 16,
     borderRadius: 50,
@@ -432,6 +555,25 @@ const styles = StyleSheet.create({
     marginTop: 4,
     color: '#FFF',
     fontWeight: '500',
+  },
+  processingOverlay: {
+    position: 'absolute',
+    top: '45%',
+    left: '50%',
+    transform: [{ translateX: -75 }, { translateY: -25 }],
+    zIndex: 20,
+  },
+  processingBlur: {
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    overflow: 'hidden',
+  },
+  processingText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   topControls: {
     position: 'absolute',

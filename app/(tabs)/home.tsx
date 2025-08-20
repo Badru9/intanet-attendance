@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 
 import { ATTENDANCE_STATUS } from '../../constants/constants';
+import { attendance, checkOut } from '../../services/attendance';
 import { UserType } from '../../types';
 import {
   getAttendanceStatus,
@@ -39,6 +40,7 @@ export default function Home() {
   const [user, setUser] = useState<UserType | null>(null);
   const [currentDate, setCurrentDate] = useState<string>('');
   const [currentTime, setCurrentTime] = useState<string>('');
+  const [isApiLoading, setIsApiLoading] = useState(false);
   const [attendanceStatus, setAttendanceStatus] =
     useState<AttendanceStatus>('loading');
   const [attendanceTimes, setAttendanceTimes] = useState({
@@ -52,7 +54,6 @@ export default function Home() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        await new Promise((resolve) => setTimeout(resolve, 1000)); // Simulate loading
         const userJson = await getItem();
         if (userJson) {
           const userData: UserType = JSON.parse(userJson);
@@ -115,6 +116,7 @@ export default function Home() {
   }, []);
 
   const handleClockIn = async () => {
+    if (isApiLoading) return;
     Animated.sequence([
       Animated.timing(animatedScale, {
         toValue: 1.1,
@@ -132,30 +134,43 @@ export default function Home() {
         locationString: string,
         notes: string | null
       ) => {
-        console.log('Clock-in successful with data:', {
-          photoUri,
-          locationString,
-          notes,
-        });
+        setIsApiLoading(true);
+        try {
+          const response = await attendance({
+            photo_check_in: photoUri,
+            location_check_in: locationString,
+            notes,
+          });
 
-        const newRecord = {
-          date: new Date().toISOString().slice(0, 10),
-          clockInStatus: 'completed' as 'completed',
-          clockInTime: new Date().toLocaleTimeString('id-ID', {
-            hour: '2-digit',
-            minute: '2-digit',
-          }),
-          clockOutStatus: 'pending' as 'pending',
-          clockOutTime: '--:--',
-        };
-        await saveAttendanceStatus(newRecord);
-        setAttendanceStatus('clock_out_pending');
-        setAttendanceTimes({
-          ...attendanceTimes,
-          clockIn: newRecord.clockInTime,
-        });
-        Alert.alert('Sukses', 'Absensi masuk Anda telah tercatat.');
-        clearCaptureCallback();
+          console.log('Check In response:', response);
+
+          if (response.success) {
+            const newRecord = {
+              date: new Date().toISOString().slice(0, 10),
+              clockInStatus: 'completed' as const,
+              clockInTime: new Date().toLocaleTimeString('id-ID', {
+                hour: '2-digit',
+                minute: '2-digit',
+              }),
+              clockOutStatus: 'pending' as const,
+              clockOutTime: '--:--',
+            };
+            await saveAttendanceStatus(newRecord);
+            setAttendanceStatus('clock_out_pending');
+            setAttendanceTimes({
+              ...attendanceTimes,
+              clockIn: newRecord.clockInTime,
+            });
+            Alert.alert('Sukses', response.message);
+          } else {
+            Alert.alert('Gagal', response.message);
+          }
+        } catch (error: any) {
+          Alert.alert('Error', error.message);
+        } finally {
+          setIsApiLoading(false);
+          clearCaptureCallback();
+        }
       };
       setCaptureCallback(onCaptureData);
       router.push('/attendance/camera');
@@ -163,6 +178,7 @@ export default function Home() {
   };
 
   const handleClockOut = async () => {
+    if (isApiLoading) return;
     Animated.sequence([
       Animated.timing(animatedScale, {
         toValue: 1.1,
@@ -180,31 +196,43 @@ export default function Home() {
         locationString: string,
         notes: string | null
       ) => {
-        console.log('Clock-out successful with data:', {
-          photoUri,
-          locationString,
-          notes,
-        });
-
-        const record = await getAttendanceStatus();
-        if (record) {
-          const updatedRecord = {
-            ...record,
-            clockOutStatus: 'completed' as 'completed',
-            clockOutTime: new Date().toLocaleTimeString('id-ID', {
-              hour: '2-digit',
-              minute: '2-digit',
-            }),
-          };
-          await saveAttendanceStatus(updatedRecord);
-          setAttendanceStatus('completed');
-          setAttendanceTimes({
-            ...attendanceTimes,
-            clockOut: updatedRecord.clockOutTime,
+        setIsApiLoading(true);
+        try {
+          const response = await checkOut({
+            // Pastikan variabel diteruskan dengan benar
+            photo_check_out: photoUri,
+            location_check_out: locationString,
+            notes,
           });
-          Alert.alert('Sukses', 'Absensi keluar Anda telah tercatat.');
+
+          if (response.success) {
+            const record = await getAttendanceStatus();
+            if (record) {
+              const updatedRecord = {
+                ...record,
+                clockOutStatus: 'completed' as const,
+                clockOutTime: new Date().toLocaleTimeString('id-ID', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                }),
+              };
+              await saveAttendanceStatus(updatedRecord);
+              setAttendanceStatus('completed');
+              setAttendanceTimes({
+                ...attendanceTimes,
+                clockOut: updatedRecord.clockOutTime,
+              });
+              Alert.alert('Sukses', response.message);
+            }
+          } else {
+            Alert.alert('Gagal', response.message);
+          }
+        } catch (error: any) {
+          Alert.alert('Error', error.message);
+        } finally {
+          setIsApiLoading(false);
+          clearCaptureCallback();
         }
-        clearCaptureCallback();
       };
       setCaptureCallback(onCaptureData);
       router.push('/attendance/camera');
@@ -212,6 +240,15 @@ export default function Home() {
   };
 
   const getButtonProps = (): ButtonProps => {
+    if (isApiLoading) {
+      return {
+        onPress: () => {},
+        text: 'Memproses...',
+        colors: ['#6B7280'],
+        disabled: true,
+      };
+    }
+
     switch (attendanceStatus) {
       case 'clock_in_pending':
         return {
@@ -250,7 +287,6 @@ export default function Home() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle='dark-content' translucent />
-
       {/* Header */}
       <View style={styles.header}>
         <Image
@@ -261,7 +297,6 @@ export default function Home() {
           <Feather name='calendar' size={24} color='#000' />
         </TouchableOpacity>
       </View>
-
       {/* Main Content */}
       <View style={styles.mainContent}>
         {/* Time and Date Section */}
@@ -269,7 +304,6 @@ export default function Home() {
           <Text style={styles.currentTimeText}>{currentTime}</Text>
           <Text style={styles.currentDateText}>{currentDate}</Text>
         </View>
-
         {/* Attendance Button */}
         <View style={styles.buttonSection}>
           <TouchableOpacity
@@ -292,7 +326,6 @@ export default function Home() {
             </Animated.View>
           </TouchableOpacity>
         </View>
-
         {/* Attendance Summary */}
         <View style={styles.summarySection}>
           <View style={styles.attendanceSummary}>

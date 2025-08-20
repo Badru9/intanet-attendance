@@ -1,28 +1,34 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { getToken } from '../utils/token';
 
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL || 'https://your-ngrok-url.ngrok-free.app';
 
-// Buat instance axios dengan konfigurasi default
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 15000,
   headers: {
-    'Content-Type': 'application/json',
     Accept: 'application/json',
-    // Header untuk ngrok (jika diperlukan)
-    'ngrok-skip-browser-warning': 'true',
+    'Content-Type': 'application/json',
   },
+  timeout: 30000, // Set timeout to 30 seconds
 });
 
-// Interceptor untuk menambahkan token ke setiap request
+// Add a request interceptor to include the token in headers
 apiClient.interceptors.request.use(
   async (config) => {
-    const token = await AsyncStorage.getItem('access_token');
+    const token = await getToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
+    // If we are sending a FormData, we need to let Axios set the Content-Type header.
+    // The default 'application/json' will be wrong and cause issues with file uploads.
+    if (config.data instanceof FormData) {
+      // We must delete the Content-Type header to allow Axios to set it automatically
+      // with the correct boundary.
+      delete config.headers['Content-Type'];
+    }
+
     return config;
   },
   (error) => {
