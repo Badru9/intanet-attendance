@@ -1,0 +1,41 @@
+name: CI/CD Expo Build
+
+on:
+  push:
+    branches: [deploy-ghcr]
+  pull_request:
+    branches: [deploy-ghcr]
+
+jobs:
+  build-mobile-app:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Set up Expo and EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Create .env file from secrets
+        run: |
+          echo "EXPO_PUBLIC_API_URL=${{ secrets.BASEURL }}" >> .env
+          echo "INFO: .env file created with EXPO_PUBLIC_API_URL."
+
+      - name: Build Android Application
+        run: eas build --platform android --profile production --non-interactive
+
+      - name: Trigger Dokploy Webhook for deployment
+        if: github.event_name == 'push'
+        run: curl -X POST "${{ secrets.DOKPLOY_WEBHOOK_URL }}"

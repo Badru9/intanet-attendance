@@ -17,6 +17,7 @@ import {
   View,
 } from 'react-native';
 
+import { getToken } from '@/utils/token';
 import { DESIGN_TOKENS } from '../../constants/designTokens'; // Import DESIGN_TOKENS
 import { register } from '../../services/auth';
 import { saveUser } from '../../utils/user';
@@ -337,10 +338,12 @@ export default function RegisterScreen() {
         password: formData.password,
       };
 
+      const token = await getToken();
+
       const response: any = await register(payload);
 
       if (response.success && response.user) {
-        await saveUser(response.user);
+        await saveUser(response.user, token || '');
 
         // Success animation
         Animated.timing(scaleAnim, {
