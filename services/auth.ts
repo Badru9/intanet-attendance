@@ -5,9 +5,11 @@ type AuthType = {
   password: string;
 };
 
-type RegisterType = {
+export type RegisterType = {
   name: string;
   email: string;
+  address: string;
+  phone: string;
   password: string;
   password_confirmation: string;
 };
@@ -59,15 +61,78 @@ export const login = async (data: AuthType): Promise<LoginResponse> => {
   }
 };
 
-export const register = async (data: RegisterType): Promise<LoginResponse> => {
-  try {
-    const response = await apiClient.post<LoginResponse>('/api/register', data);
-    console.log('Register successful', response.data);
-    return response.data;
-  } catch (error: any) {
-    console.error('Register error:', error.response?.data);
-    throw error;
-  }
+export const register = (data: RegisterType): Promise<LoginResponse> => {
+  return new Promise((resolve, reject) => {
+    const { name, email, password, password_confirmation, phone, address } =
+      data;
+
+    const formData = new FormData();
+    formData.append('name', name);
+    formData.append('email', email);
+    formData.append('password', password);
+    formData.append('password_confirmation', password_confirmation);
+    formData.append('phone', phone);
+    formData.append('address', address);
+
+    const xhr = new XMLHttpRequest();
+    const url = `${API_BASE_URL}/api/register`;
+
+    xhr.open('POST', url, true);
+    // Set header 'Accept' untuk memastikan backend merespons dengan JSON
+    xhr.setRequestHeader('Accept', 'application/json');
+
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState === 4) {
+        // Sembunyikan loading indicator di sini jika ada
+      }
+    };
+
+    xhr.onload = () => {
+      console.log(`[XHR Status]: ${xhr.status}`);
+      console.log(`[XHR Response]: ${xhr.responseText}`);
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const responseJson: LoginResponse = JSON.parse(xhr.responseText);
+          console.log('Register successful', responseJson);
+          resolve(responseJson);
+        } catch (parseError) {
+          console.error('Error parsing JSON response:', parseError);
+          reject(new Error('Gagal memproses respons dari server.'));
+        }
+      } else {
+        let errorMessage = `HTTP error! status: ${xhr.status}`;
+        try {
+          const errorJson = JSON.parse(xhr.responseText);
+          // Mengambil pesan error dari backend, jika ada
+          if (errorJson.message) {
+            errorMessage = errorJson.message;
+          } else if (errorJson.errors) {
+            // Mengambil error validasi pertama
+            const firstErrorKey = Object.keys(errorJson.errors)[0];
+            errorMessage = errorJson.errors[firstErrorKey][0];
+          }
+        } catch (e) {
+          // Biarkan errorMessage default jika respons bukan JSON
+        }
+        console.error('Register error:', errorMessage);
+        reject(new Error(errorMessage));
+      }
+    };
+
+    xhr.onerror = () => {
+      console.error('[XHR] Network error');
+      reject(new Error('Terjadi kesalahan jaringan. Periksa koneksi Anda.'));
+    };
+
+    xhr.ontimeout = () => {
+      console.error('[XHR] Request timed out');
+      reject(new Error('Waktu permintaan habis. Silakan coba lagi.'));
+    };
+
+    console.log('Sending registration data to:', url);
+    xhr.send(formData);
+  });
 };
 
 export const logout = async (token: string): Promise<void> => {

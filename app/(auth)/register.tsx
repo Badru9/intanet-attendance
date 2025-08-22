@@ -18,13 +18,12 @@ import {
 } from 'react-native';
 
 import { getToken } from '@/utils/token';
-import { DESIGN_TOKENS } from '../../constants/designTokens'; // Import DESIGN_TOKENS
-import { register } from '../../services/auth';
+import { DESIGN_TOKENS } from '../../constants/designTokens';
+import { register, RegisterType } from '../../services/auth';
 import { saveUser } from '../../utils/user';
 
 // TypeScript type definitions for better type safety
 type KeyboardType = 'default' | 'email-address' | 'numeric' | 'phone-pad';
-// FontWeight type is now implicitly defined by DESIGN_TOKENS.typography properties
 
 // API Response types
 interface AuthResponse {
@@ -64,16 +63,30 @@ type ValidationRules = {
   [K in keyof FormData]: ValidationRule;
 };
 
-// Use DESIGN_TOKENS for minLength where applicable
 const VALIDATION_RULES: ValidationRules = {
+  name: {
+    required: 'Nama lengkap diperlukan',
+    minLength: 2,
+    minLengthMessage: 'Nama minimal 2 karakter',
+  },
   email: {
     required: 'Email diperlukan',
     pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
     patternMessage: 'Format email tidak valid',
   },
+  phone: {
+    required: 'Nomor telepon diperlukan',
+    pattern: /^[0-9]{10,15}$/,
+    patternMessage: 'Format nomor telepon tidak valid (10-15 digit)',
+  },
+  address: {
+    required: 'Alamat diperlukan',
+    minLength: 10,
+    minLengthMessage: 'Alamat minimal 10 karakter',
+  },
   password: {
     required: 'Password diperlukan',
-    minLength: 8, // Keeping 8 as per original logic, not tied to designTokens directly
+    minLength: 8,
     minLengthMessage: 'Password minimal 8 karakter',
     pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
     patternMessage: 'Password harus mengandung huruf besar, kecil, dan angka',
@@ -83,17 +96,14 @@ const VALIDATION_RULES: ValidationRules = {
     matchField: 'password',
     matchMessage: 'Password tidak cocok',
   },
-  name: {
-    required: 'Nama lengkap diperlukan',
-    minLength: 2, // Keeping 2 as per original logic
-    minLengthMessage: 'Nama minimal 2 karakter',
-  },
 } as const;
 
 // TypeScript interfaces for component props and state
 interface FormData {
   name: string;
   email: string;
+  phone: string;
+  address: string;
   password: string;
   confirmPassword: string;
 }
@@ -101,6 +111,8 @@ interface FormData {
 interface FormErrors {
   name: string;
   email: string;
+  phone: string;
+  address: string;
   password: string;
   confirmPassword: string;
 }
@@ -109,12 +121,54 @@ interface InputOptions {
   keyboardType?: KeyboardType;
   secureTextEntry?: boolean;
   showPasswordToggle?: boolean;
-  showPassword?: boolean;
+  isPasswordVisible?: boolean;
   onTogglePassword?: () => void;
+  multiline?: boolean;
+  numberOfLines?: number;
 }
 
-// Feather icon names type (commonly used ones)
-type FeatherIconName = 'user' | 'mail' | 'lock' | 'eye' | 'eye-off' | 'loader';
+// Feather icon names type
+type FeatherIconName =
+  | 'user'
+  | 'mail'
+  | 'lock'
+  | 'eye'
+  | 'eye-off'
+  | 'loader'
+  | 'phone'
+  | 'map-pin';
+
+// Loading spinner component
+const LoadingSpinner = () => {
+  const spinValue = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const spin = () => {
+      spinValue.setValue(0);
+      Animated.timing(spinValue, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true,
+      }).start(() => spin());
+    };
+    spin();
+  }, [spinValue]);
+
+  const rotate = spinValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
+  return (
+    <Animated.View style={{ transform: [{ rotate }] }}>
+      <Feather
+        name='loader'
+        size={20}
+        color={DESIGN_TOKENS.colors.textTertiary}
+      />
+    </Animated.View>
+  );
+};
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -123,6 +177,8 @@ export default function RegisterScreen() {
   const [formData, setFormData] = useState<FormData>({
     name: '',
     email: '',
+    phone: '',
+    address: '',
     password: '',
     confirmPassword: '',
   });
@@ -130,6 +186,8 @@ export default function RegisterScreen() {
   const [formErrors, setFormErrors] = useState<FormErrors>({
     name: '',
     email: '',
+    phone: '',
+    address: '',
     password: '',
     confirmPassword: '',
   });
@@ -144,24 +202,20 @@ export default function RegisterScreen() {
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
   const headerAnim = useRef(
     new Animated.Value(-DESIGN_TOKENS.spacing.md)
-  ).current; // Use DESIGN_TOKENS
+  ).current;
   const inputAnimRefs = useRef([
-    new Animated.Value(DESIGN_TOKENS.spacing.md), // Use DESIGN_TOKENS
-    new Animated.Value(DESIGN_TOKENS.spacing.lg), // Use DESIGN_TOKENS
-    new Animated.Value(DESIGN_TOKENS.spacing.xl), // Use DESIGN_TOKENS
-    new Animated.Value(DESIGN_TOKENS.spacing.xxl), // Use DESIGN_TOKENS
+    new Animated.Value(DESIGN_TOKENS.spacing.md),
+    new Animated.Value(DESIGN_TOKENS.spacing.lg),
+    new Animated.Value(DESIGN_TOKENS.spacing.xl),
+    new Animated.Value(DESIGN_TOKENS.spacing.xxl),
+    new Animated.Value(DESIGN_TOKENS.spacing.xxxl),
+    new Animated.Value(DESIGN_TOKENS.spacing.xxxl),
   ]).current;
   const buttonAnim = useRef(
     new Animated.Value(DESIGN_TOKENS.spacing.xxxl)
-  ).current; // Use DESIGN_TOKENS
+  ).current;
 
-  // Component lifecycle
-  useEffect(() => {
-    startEntranceAnimation();
-  }, []);
-
-  // Animation methods with proper TypeScript typing
-  const startEntranceAnimation = (): void => {
+  const startEntranceAnimation = useCallback(() => {
     Animated.sequence([
       Animated.parallel([
         Animated.timing(fadeAnim, {
@@ -195,8 +249,14 @@ export default function RegisterScreen() {
         }),
       ]),
     ]).start();
-  };
+  }, [buttonAnim, fadeAnim, headerAnim, inputAnimRefs, scaleAnim]);
 
+  // Component lifecycle
+  useEffect(() => {
+    startEntranceAnimation();
+  }, [startEntranceAnimation]);
+
+  // Animation methods with proper TypeScript typing
   const animateButtonPress = (): void => {
     Animated.sequence([
       Animated.timing(scaleAnim, {
@@ -212,11 +272,17 @@ export default function RegisterScreen() {
     ]).start();
   };
 
+  // Password visibility toggle functions
+  const togglePasswordVisibility = useCallback(() => {
+    setShowPassword((prev) => !prev);
+  }, []);
+
+  const toggleConfirmPasswordVisibility = useCallback(() => {
+    setShowConfirmPassword((prev) => !prev);
+  }, []);
+
   /**
    * Validates a single form field based on predefined rules.
-   * @param field The name of the field to validate.
-   * @param value The current value of the field.
-   * @returns An error message string if validation fails, otherwise an empty string.
    */
   const validateField = useCallback(
     (field: keyof FormData, value: string): string => {
@@ -241,19 +307,18 @@ export default function RegisterScreen() {
 
       return '';
     },
-    [formData.password]
-  ); // Dependency on formData.password for confirmPassword validation
+    [formData]
+  );
 
   /**
    * Validates the entire form by iterating through all fields.
-   * Updates the formErrors state.
-   * @returns True if the form is valid, false otherwise.
    */
   const validateForm = useCallback((): boolean => {
     const newErrors: FormErrors = {
-      // Initialize with empty strings for all fields
       name: '',
       email: '',
+      phone: '',
+      address: '',
       password: '',
       confirmPassword: '',
     };
@@ -269,13 +334,10 @@ export default function RegisterScreen() {
 
     setFormErrors(newErrors);
     return isValid;
-  }, [formData, validateField]); // Dependencies on formData and validateField
+  }, [formData, validateField]);
 
   /**
    * Handles changes to an input field.
-   * Updates formData and clears the corresponding error if typing starts.
-   * @param field The name of the field being changed.
-   * @param value The new value of the field.
    */
   const handleFieldChange = useCallback(
     (field: keyof FormData, value: string): void => {
@@ -302,26 +364,22 @@ export default function RegisterScreen() {
 
   /**
    * Handles the blur event for an input field.
-   * Triggers validation for the blurred field and updates errors.
-   * @param field The name of the field being blurred.
    */
   const handleFieldBlur = useCallback(
     (field: keyof FormData): void => {
       const error = validateField(field, formData[field]);
       setFormErrors((prev) => ({ ...prev, [field]: error }));
-      setFocusedField(null); // Clear focused field state
+      setFocusedField(null);
     },
     [formData, validateField]
   );
 
   /**
    * Handles the registration process.
-   * Validates the form, calls the API, and navigates on success or shows an alert on failure.
    */
   const handleRegister = async (): Promise<void> => {
-    if (isLoading) return; // Prevent multiple submissions
+    if (isLoading) return;
 
-    // Validate the entire form before attempting registration
     const isFormValid = validateForm();
     if (!isFormValid) {
       Alert.alert('Form Tidak Valid', 'Mohon periksa kembali input Anda.');
@@ -332,18 +390,20 @@ export default function RegisterScreen() {
     animateButtonPress();
 
     try {
-      const payload: any = {
+      const payload: RegisterType = {
         name: formData.name,
+        address: formData.address,
+        phone: formData.phone,
         email: formData.email,
         password: formData.password,
+        password_confirmation: formData.confirmPassword,
       };
-
-      const token = await getToken();
 
       const response: any = await register(payload);
 
       if (response.success && response.user) {
-        await saveUser(response.user, token || '');
+        const token = await getToken();
+        await saveUser(response.user, token || response.access_token || '');
 
         // Success animation
         Animated.timing(scaleAnim, {
@@ -351,10 +411,9 @@ export default function RegisterScreen() {
           duration: 200,
           useNativeDriver: true,
         }).start(() => {
-          router.navigate('/home'); // Navigate to the main tab group index
+          router.navigate('/home');
         });
       } else {
-        // Handle API-specific error messages
         Alert.alert(
           'Registrasi Gagal',
           response.message || 'Terjadi kesalahan tidak dikenal.'
@@ -362,7 +421,6 @@ export default function RegisterScreen() {
       }
     } catch (error: unknown) {
       console.error('Register error:', error);
-      // More user-friendly error message for network/unexpected issues
       Alert.alert(
         'Error',
         'Terjadi kesalahan jaringan atau server. Silakan coba lagi nanti.'
@@ -382,6 +440,23 @@ export default function RegisterScreen() {
   ) => {
     const hasError: boolean = !!formErrors[field];
     const isFocused: boolean = focusedField === field;
+
+    // Tentukan apakah input ini adalah field password
+    const isPasswordField = field === 'password' || field === 'confirmPassword';
+
+    // Tentukan nilai secureTextEntry berdasarkan state visibilitas
+    const dynamicSecureTextEntry = isPasswordField
+      ? field === 'password'
+        ? !showPassword
+        : !showConfirmPassword
+      : false;
+
+    // Tentukan nama ikon dinamis
+    const dynamicIconName = isPasswordField
+      ? dynamicSecureTextEntry
+        ? 'eye'
+        : 'eye-off'
+      : (icon as any);
 
     return (
       <Animated.View
@@ -407,6 +482,7 @@ export default function RegisterScreen() {
             shadowOffset: { width: 0, height: 2 },
             shadowOpacity: isFocused ? 0.2 : 0.1,
             shadowRadius: 4,
+            elevation: isFocused ? 4 : 2, // For Android shadow
           }}
         >
           <View
@@ -414,11 +490,12 @@ export default function RegisterScreen() {
               flexDirection: 'row',
               alignItems: 'center',
               paddingHorizontal: DESIGN_TOKENS.spacing.md,
-              height: 56,
+              minHeight: 56,
+              paddingVertical: options.multiline ? 10 : 0,
             }}
           >
             <Feather
-              name={icon as any}
+              name={icon as any} // Tetap gunakan ikon statis di sini
               size={20}
               color={
                 isFocused
@@ -432,6 +509,7 @@ export default function RegisterScreen() {
                 flex: 1,
                 ...DESIGN_TOKENS.typography.body,
                 color: DESIGN_TOKENS.colors.textPrimary,
+                textAlignVertical: options.multiline ? 'top' : 'center',
               }}
               placeholder={placeholder}
               placeholderTextColor={DESIGN_TOKENS.colors.textSecondary}
@@ -440,35 +518,54 @@ export default function RegisterScreen() {
               onFocus={() => setFocusedField(field)}
               onBlur={() => handleFieldBlur(field)}
               keyboardType={options.keyboardType || 'default'}
-              secureTextEntry={options.secureTextEntry}
+              // Gunakan nilai dinamis untuk secureTextEntry
+              secureTextEntry={dynamicSecureTextEntry}
               autoCapitalize={field === 'email' ? 'none' : 'words'}
               autoCorrect={false}
+              multiline={options.multiline}
+              numberOfLines={options.numberOfLines}
             />
             {options.showPasswordToggle && (
               <TouchableOpacity
                 onPress={options.onTogglePassword}
-                style={{ padding: DESIGN_TOKENS.spacing.xs }}
+                style={{
+                  padding: DESIGN_TOKENS.spacing.xs,
+                  borderRadius: DESIGN_TOKENS.borderRadius.sm,
+                }}
+                activeOpacity={0.7}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
+                {/* Gunakan ikon dinamis di sini */}
                 <Feather
-                  name={options.showPassword ? 'eye-off' : 'eye'}
+                  name={dynamicIconName as any}
                   size={20}
-                  color={DESIGN_TOKENS.colors.textSecondary}
+                  color={
+                    isFocused
+                      ? DESIGN_TOKENS.colors.primary
+                      : DESIGN_TOKENS.colors.textSecondary
+                  }
                 />
               </TouchableOpacity>
             )}
           </View>
         </View>
         {hasError && (
-          <Text
+          <Animated.View
             style={{
-              ...DESIGN_TOKENS.typography.error,
-              color: DESIGN_TOKENS.colors.error,
+              opacity: hasError ? 1 : 0,
               marginTop: DESIGN_TOKENS.spacing.sm,
               marginLeft: DESIGN_TOKENS.spacing.xs,
             }}
           >
-            {formErrors[field]}
-          </Text>
+            <Text
+              style={{
+                ...DESIGN_TOKENS.typography.error,
+                color: DESIGN_TOKENS.colors.error,
+              }}
+            >
+              {formErrors[field]}
+            </Text>
+          </Animated.View>
         )}
       </Animated.View>
     );
@@ -497,6 +594,7 @@ export default function RegisterScreen() {
               paddingVertical: DESIGN_TOKENS.spacing.xxl,
             }}
             showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps='handled'
           >
             <Animated.View
               style={{
@@ -522,7 +620,7 @@ export default function RegisterScreen() {
                   />
                   <Text
                     style={{
-                      ...DESIGN_TOKENS.typography.h1, // Use h1 from DESIGN_TOKENS
+                      ...DESIGN_TOKENS.typography.h1,
                       color: DESIGN_TOKENS.colors.textPrimary,
                       textAlign: 'center',
                     }}
@@ -538,24 +636,32 @@ export default function RegisterScreen() {
                   keyboardType: 'email-address',
                 })}
 
-                {renderInput('password', 'Password', 'lock', 2, {
+                {renderInput('phone', 'Nomor Telepon', 'phone', 2, {
+                  keyboardType: 'phone-pad',
+                })}
+
+                {renderInput('address', 'Alamat', 'map-pin', 3, {
+                  multiline: true,
+                  numberOfLines: 3,
+                })}
+
+                {renderInput('password', 'Password', 'lock', 4, {
                   secureTextEntry: !showPassword,
                   showPasswordToggle: true,
-                  showPassword,
-                  onTogglePassword: () => setShowPassword(!showPassword),
+                  isPasswordVisible: showPassword,
+                  onTogglePassword: togglePasswordVisibility,
                 })}
 
                 {renderInput(
                   'confirmPassword',
                   'Konfirmasi Password',
                   'lock',
-                  3,
+                  5,
                   {
                     secureTextEntry: !showConfirmPassword,
                     showPasswordToggle: true,
-                    showPassword: showConfirmPassword,
-                    onTogglePassword: () =>
-                      setShowConfirmPassword(!showConfirmPassword),
+                    isPasswordVisible: showConfirmPassword,
+                    onTogglePassword: toggleConfirmPasswordVisibility,
                   }
                 )}
 
@@ -570,6 +676,13 @@ export default function RegisterScreen() {
                     disabled={isLoading}
                     onPress={handleRegister}
                     activeOpacity={0.8}
+                    style={{
+                      shadowColor: DESIGN_TOKENS.colors.primary,
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.3,
+                      shadowRadius: 12,
+                      elevation: 6, // For Android shadow
+                    }}
                   >
                     <LinearGradient
                       colors={[DESIGN_TOKENS.colors.primary, '#0056CC']}
@@ -581,23 +694,13 @@ export default function RegisterScreen() {
                         justifyContent: 'center',
                         alignItems: 'center',
                         flexDirection: 'row',
-                        shadowColor: DESIGN_TOKENS.colors.primary,
-                        shadowOffset: { width: 0, height: 4 },
-                        shadowOpacity: 0.3,
-                        shadowRadius: 12,
                         opacity: isLoading ? 0.8 : 1,
                       }}
                     >
                       {isLoading && (
-                        <Animated.View
-                          style={{ marginRight: DESIGN_TOKENS.spacing.sm }}
-                        >
-                          <Feather
-                            name='loader'
-                            size={20}
-                            color={DESIGN_TOKENS.colors.textTertiary}
-                          />
-                        </Animated.View>
+                        <View style={{ marginRight: DESIGN_TOKENS.spacing.sm }}>
+                          <LoadingSpinner />
+                        </View>
                       )}
                       <Text
                         style={{
@@ -624,7 +727,7 @@ export default function RegisterScreen() {
                         <Text
                           style={{
                             ...DESIGN_TOKENS.typography.caption,
-                            fontWeight: '400', // Ensure fontWeight is explicit if not part of typography preset
+                            fontWeight: '400',
                             color: DESIGN_TOKENS.colors.textSecondary,
                           }}
                         >
