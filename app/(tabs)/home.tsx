@@ -1,12 +1,10 @@
 import { Feather } from '@expo/vector-icons';
-import { useAsyncStorage } from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
   ColorValue,
-  Image,
   StatusBar,
   StyleSheet,
   Text,
@@ -15,8 +13,12 @@ import {
 } from 'react-native';
 
 import { ATTENDANCE_STATUS } from '../../constants/constants';
-import { attendance, checkOut } from '../../services/attendance';
-import { UserType } from '../../types';
+import { useAuth } from '../../contexts/authContext';
+import {
+  attendance,
+  checkOut,
+  getAttendanceStatusFromBackend,
+} from '../../services/attendance';
 import {
   getAttendanceStatus,
   saveAttendanceStatus,
@@ -37,7 +39,7 @@ type ButtonProps = {
 
 export default function Home() {
   const router = useRouter();
-  const [user, setUser] = useState<UserType | null>(null);
+  const { user } = useAuth(); // Menggunakan user dari AuthContext
   const [currentDate, setCurrentDate] = useState<string>('');
   const [currentTime, setCurrentTime] = useState<string>('');
   const [isApiLoading, setIsApiLoading] = useState(false);
@@ -47,48 +49,130 @@ export default function Home() {
     clockIn: '--:--',
     clockOut: '--:--',
   });
-  const { getItem } = useAsyncStorage('user');
 
   const animatedScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     const loadData = async () => {
-      try {
-        const userJson = await getItem();
-        if (userJson) {
-          const userData: UserType = JSON.parse(userJson);
-          setUser(userData);
-        }
+      if (user) {
+        try {
+          setAttendanceStatus('loading');
 
-        const record = await getAttendanceStatus();
-        if (record) {
-          const today = new Date().toISOString().slice(0, 10);
-          if (record.date === today) {
-            setAttendanceTimes({
-              clockIn: record.clockInTime || '--:--',
-              clockOut: record.clockOutTime || '--:--',
-            });
+          // Pertama, cek status dari backend
+          try {
+            const backendResponse = await getAttendanceStatusFromBackend();
 
-            if (record.clockOutStatus === 'completed') {
-              setAttendanceStatus('completed');
-            } else if (record.clockInStatus === 'completed') {
-              setAttendanceStatus('clock_out_pending');
+            console.log('Backend response:', backendResponse);
+
+            if (backendResponse.success && backendResponse.data) {
+              const backendData = backendResponse.data;
+              const today = new Date().toISOString().slice(0, 10);
+
+              if (backendData.today_date === today) {
+                let clockInTime = '--:--';
+                let clockOutTime = '--:--';
+
+                // Ambil data dari today_attendance jika ada
+                if (backendData.today_attendance) {
+                  if (backendData.today_attendance.check_in_time) {
+                    clockInTime = new Date(
+                      backendData.today_attendance.check_in_time
+                    ).toLocaleTimeString('id-ID', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    });
+                  }
+
+                  if (backendData.today_attendance.check_out_time) {
+                    clockOutTime = new Date(
+                      backendData.today_attendance.check_out_time
+                    ).toLocaleTimeString('id-ID', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    });
+                  }
+                }
+
+                // Update local storage dengan data terbaru dari backend
+                const localRecord = {
+                  date: backendData.today_date,
+                  clockInStatus: backendData.has_checked_in_today
+                    ? ('completed' as const)
+                    : ('pending' as const),
+                  clockInTime: clockInTime,
+                  clockOutStatus: backendData.has_checked_out_today
+                    ? ('completed' as const)
+                    : ('pending' as const),
+                  clockOutTime: clockOutTime,
+                };
+
+                await saveAttendanceStatus(String(user.id), localRecord);
+
+                setAttendanceTimes({
+                  clockIn: clockInTime,
+                  clockOut: clockOutTime,
+                });
+
+                // Tentukan status berdasarkan data dari backend
+                if (backendData.has_checked_out_today) {
+                  setAttendanceStatus('completed');
+                } else if (backendData.has_checked_in_today) {
+                  setAttendanceStatus('clock_out_pending');
+                } else {
+                  setAttendanceStatus('clock_in_pending');
+                }
+              } else {
+                // Hari yang berbeda, reset status
+                setAttendanceStatus('clock_in_pending');
+                setAttendanceTimes({ clockIn: '--:--', clockOut: '--:--' });
+              }
+            } else {
+              // Tidak ada data dari backend, fallback ke local storage
+              throw new Error('No backend data available');
+            }
+          } catch (backendError) {
+            console.log(
+              'Backend check failed, falling back to local storage:',
+              backendError
+            );
+
+            // Fallback ke local storage jika backend gagal
+            const record = await getAttendanceStatus(String(user.id));
+            if (record) {
+              const today = new Date().toISOString().slice(0, 10);
+              if (record.date === today) {
+                setAttendanceTimes({
+                  clockIn: record.clockInTime || '--:--',
+                  clockOut: record.clockOutTime || '--:--',
+                });
+
+                if (record.clockOutStatus === 'completed') {
+                  setAttendanceStatus('completed');
+                } else if (record.clockInStatus === 'completed') {
+                  setAttendanceStatus('clock_out_pending');
+                } else {
+                  setAttendanceStatus('clock_in_pending');
+                }
+              } else {
+                setAttendanceStatus('clock_in_pending');
+                setAttendanceTimes({ clockIn: '--:--', clockOut: '--:--' });
+              }
             } else {
               setAttendanceStatus('clock_in_pending');
             }
-          } else {
-            // New day, reset status
-            setAttendanceStatus('clock_in_pending');
-            setAttendanceTimes({ clockIn: '--:--', clockOut: '--:--' });
           }
-        } else {
-          setAttendanceStatus('clock_in_pending');
+        } catch (e) {
+          console.error('Failed to load attendance data:', e);
+          setAttendanceStatus('clock_in_pending'); // Fallback
         }
-      } catch (e) {
-        console.error('Failed to load data from storage', e);
-        setAttendanceStatus('clock_in_pending');
+      } else {
+        // Jika tidak ada user, reset ke state awal
+        setAttendanceStatus('loading');
+        setAttendanceTimes({ clockIn: '--:--', clockOut: '--:--' });
       }
     };
+
+    loadData();
 
     const updateDateTime = () => {
       const now = new Date();
@@ -108,15 +192,14 @@ export default function Home() {
       );
     };
 
-    loadData();
     updateDateTime();
     const intervalId = setInterval(updateDateTime, 1000);
 
     return () => clearInterval(intervalId);
-  }, []);
+  }, [user]); // Re-run effect ketika user berubah
 
   const handleClockIn = async () => {
-    if (isApiLoading) return;
+    if (isApiLoading || !user) return;
     Animated.sequence([
       Animated.timing(animatedScale, {
         toValue: 1.1,
@@ -134,6 +217,7 @@ export default function Home() {
         locationString: string,
         notes: string | null
       ) => {
+        if (!user) return;
         setIsApiLoading(true);
         try {
           const response = await attendance({
@@ -141,8 +225,6 @@ export default function Home() {
             location_check_in: locationString,
             notes,
           });
-
-          console.log('Check In response:', response);
 
           if (response.success) {
             const newRecord = {
@@ -155,7 +237,7 @@ export default function Home() {
               clockOutStatus: 'pending' as const,
               clockOutTime: '--:--',
             };
-            await saveAttendanceStatus(newRecord);
+            await saveAttendanceStatus(String(user.id), newRecord);
             setAttendanceStatus('clock_out_pending');
             setAttendanceTimes({
               ...attendanceTimes,
@@ -178,7 +260,7 @@ export default function Home() {
   };
 
   const handleClockOut = async () => {
-    if (isApiLoading) return;
+    if (isApiLoading || !user) return;
     Animated.sequence([
       Animated.timing(animatedScale, {
         toValue: 1.1,
@@ -196,17 +278,17 @@ export default function Home() {
         locationString: string,
         notes: string | null
       ) => {
+        if (!user) return;
         setIsApiLoading(true);
         try {
           const response = await checkOut({
-            // Pastikan variabel diteruskan dengan benar
             photo_check_out: photoUri,
             location_check_out: locationString,
             notes,
           });
 
           if (response.success) {
-            const record = await getAttendanceStatus();
+            const record = await getAttendanceStatus(String(user.id));
             if (record) {
               const updatedRecord = {
                 ...record,
@@ -216,7 +298,7 @@ export default function Home() {
                   minute: '2-digit',
                 }),
               };
-              await saveAttendanceStatus(updatedRecord);
+              await saveAttendanceStatus(String(user.id), updatedRecord);
               setAttendanceStatus('completed');
               setAttendanceTimes({
                 ...attendanceTimes,
@@ -289,11 +371,14 @@ export default function Home() {
       <StatusBar barStyle='dark-content' translucent />
       {/* Header */}
       <View style={styles.header}>
-        <Image
+        {/* <Image
           source={{ uri: 'https://i.pravatar.cc/150?img=50' }}
           style={styles.profileImage}
-        />
-        <TouchableOpacity style={styles.calendarButton}>
+        /> */}
+        <TouchableOpacity
+          style={styles.calendarButton}
+          onPress={() => router.push('/attendance/detail')}
+        >
           <Feather name='calendar' size={24} color='#000' />
         </TouchableOpacity>
       </View>
@@ -320,8 +405,15 @@ export default function Home() {
                 },
               ]}
             >
-              <View style={styles.mainButtonInner}>
-                <Text style={styles.mainButtonText}>{buttonProps.text}</Text>
+              <View
+                style={[
+                  styles.mainButtonWrapper,
+                  { borderColor: buttonProps.colors[0] },
+                ]}
+              >
+                <View style={styles.mainButtonInner}>
+                  <Text style={styles.mainButtonText}>{buttonProps.text}</Text>
+                </View>
               </View>
             </Animated.View>
           </TouchableOpacity>
@@ -351,7 +443,7 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 60,
@@ -411,17 +503,26 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 100,
   },
+  mainButtonWrapper: {
+    width: '110%',
+    height: '110%',
+    borderWidth: 2,
+    borderRadius: 1000,
+    position: 'fixed',
+    top: -10,
+    left: -10,
+  },
   mainButtonInner: {
-    width: '100%',
-    height: '100%',
     borderRadius: 100,
+    height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
   },
   mainButtonText: {
     color: '#FFF',
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 'bold',
+    letterSpacing: 1,
   },
   summarySection: {
     flex: 1,

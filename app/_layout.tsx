@@ -78,7 +78,7 @@ export default function RootLayout() {
             screenOptions={{
               headerShown: false,
             }}
-            // initialRouteName='(tabs)'
+            initialRouteName='(auth)'
           >
             {/* Main App with Tabs */}
             {/* Auth Group */}

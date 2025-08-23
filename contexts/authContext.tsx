@@ -6,6 +6,7 @@ import {
   logout as logoutApi,
 } from '@/services/auth';
 import { UserType } from '@/types';
+import { clearAttendanceStatus } from '@/utils/attendanceStorage';
 import { getToken } from '@/utils/token';
 import { clearAuthData, getUser, saveUser } from '@/utils/user';
 import React, {
@@ -89,6 +90,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       console.error('Logout failed on API, but clearing local storage:', error);
     } finally {
       console.log('finally');
+
+      // Hapus juga data presensi yang terkait dengan pengguna
+      if (user) {
+        await clearAttendanceStatus(String(user.id));
+      }
 
       // Gunakan fungsi utilitas untuk menghapus data otentikasi
       await clearAuthData();

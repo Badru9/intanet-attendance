@@ -8,7 +8,6 @@ import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -92,10 +91,10 @@ export default function Profile() {
   return (
     <SafeAreaView style={{ ...styles.container, paddingTop: insets.top }}>
       <View style={styles.header}>
-        <Image
+        {/* <Image
           source={{ uri: 'https://i.pravatar.cc/150?img=50' }}
           style={styles.profileImage}
-        />
+        /> */}
         <Text style={styles.name}>{user?.name}</Text>
         <Text style={styles.position}>
           {user?.is_admin !== 0 ? 'Direktur' : 'Karyawan'}

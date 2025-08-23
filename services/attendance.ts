@@ -22,6 +22,45 @@ type AttendanceSuccessResponse = {
   message: string;
 };
 
+// Tipe untuk respons status attendance dari API
+type AttendanceStatusResponse = {
+  success: boolean;
+  data: {
+    user_id: number;
+    user_name: string;
+    today_date: string;
+    can_check_in: boolean;
+    can_check_out: boolean;
+    has_checked_in_today: boolean;
+    has_checked_out_today: boolean;
+    today_attendance?: {
+      id: number;
+      check_in_time?: string;
+      check_out_time?: string;
+      location_check_in?: string;
+      location_check_out?: string;
+      notes?: string;
+      status: string;
+      date: string;
+      working_hours?: any;
+    };
+    monthly_stats: {
+      month: string;
+      month_name: string;
+      total_days: number;
+      present_days: number;
+      absent_days: number;
+      late_days: number;
+      leave_days: number;
+      sick_days: number;
+      attendance_rate: number;
+      total_working_hours: any;
+    };
+    recent_attendances: any[];
+  };
+  message: string;
+};
+
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL || 'https://your-ngrok-url.ngrok-free.app';
 
@@ -94,6 +133,125 @@ const makeRequest = (
 
     xhr.send(formData);
   });
+};
+
+/**
+ * Function to get current attendance status from backend
+ */
+export const getAttendanceStatusFromBackend =
+  async (): Promise<AttendanceStatusResponse> => {
+    const token = await getToken();
+    if (!token) {
+      throw new Error('No authentication token found. Please log in.');
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+      const response = await fetch(`${API_BASE_URL}/api/attendances/status`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          responseData.message || `Server Error: ${response.status}`
+        );
+      }
+
+      return responseData;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error('Request timed out. Please try again.');
+      }
+      console.error('Error fetching attendance status from backend:', error);
+      throw error;
+    }
+  };
+
+/**
+ * Function to get attendance history from backend
+ */
+export const getAttendanceHistory = async (
+  month?: string,
+  year?: string
+): Promise<any> => {
+  const token = await getToken();
+  if (!token) {
+    throw new Error('No authentication token found. Please log in.');
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    // Build query parameters with proper validation
+    const params = new URLSearchParams();
+
+    // Convert month and year to integers and validate
+    if (month) {
+      const monthNum = parseInt(month, 10);
+      if (monthNum >= 1 && monthNum <= 12) {
+        params.append('month', monthNum.toString());
+      }
+    }
+
+    if (year) {
+      const yearNum = parseInt(year, 10);
+      if (yearNum >= 2020 && yearNum <= 2100) {
+        params.append('year', yearNum.toString());
+      }
+    }
+
+    // Add pagination parameters
+    params.append('per_page', '31'); // Get full month data
+
+    const queryString = params.toString();
+    const url = `${API_BASE_URL}/api/attendances/history${queryString ? `?${queryString}` : ''}`;
+
+    console.log('Fetching attendance history from:', url);
+    console.log('Parameters:', { month, year });
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    const responseData = await response.json();
+
+    console.log('Backend response:', responseData);
+
+    if (!response.ok) {
+      throw new Error(
+        responseData.message || `Server Error: ${response.status}`
+      );
+    }
+
+    return responseData;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Request timed out. Please try again.');
+    }
+    console.error('Error fetching attendance history from backend:', error);
+    throw error;
+  }
 };
 
 /**

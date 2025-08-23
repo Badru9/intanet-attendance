@@ -49,6 +49,7 @@ export default function AttendanceCameraScreen() {
     useState<string>('Mencari lokasi...');
   const [isProcessing, setIsProcessing] = useState(false);
   const [fileSizeInfo, setFileSizeInfo] = useState<string>('');
+  const [isLocationReady, setIsLocationReady] = useState(false);
 
   // State untuk menyimpan data saat foto diambil
   const [captureData, setCaptureData] = useState<{
@@ -144,6 +145,7 @@ export default function AttendanceCameraScreen() {
   const updateLocation = async () => {
     if (!locationPermission?.granted) {
       setLocationString('Izin lokasi tidak diberikan');
+      setIsLocationReady(false);
       return;
     }
     try {
@@ -154,9 +156,11 @@ export default function AttendanceCameraScreen() {
       setLocationString(
         `Lat: ${latitude.toFixed(4)} \nLon: ${longitude.toFixed(4)}`
       );
+      setIsLocationReady(true);
     } catch (e) {
       console.error('Error saat mendapatkan lokasi:', e);
       setLocationString('Gagal mendapatkan lokasi.');
+      setIsLocationReady(false);
     }
   };
 
@@ -484,11 +488,15 @@ export default function AttendanceCameraScreen() {
               onPress={handleCapture}
               style={[
                 styles.captureButton,
-                !isReady && styles.captureButtonDisabled,
+                (!isReady || !isLocationReady) && styles.captureButtonDisabled,
               ]}
-              disabled={!isReady}
+              disabled={!isReady || !isLocationReady}
             >
-              <Feather name='camera' size={30} color='#FFF' />
+              {!isLocationReady ? (
+                <Feather name='loader' size={30} color='#FFF' />
+              ) : (
+                <Feather name='camera' size={30} color='#FFF' />
+              )}
             </TouchableOpacity>
           </View>
         </>

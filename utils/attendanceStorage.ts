@@ -1,9 +1,8 @@
 // utils/attendanceStorage.ts
-// Kode yang diperbarui untuk menyertakan waktu clockIn dan clockOut
-
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const ATTENDANCE_STATUS_KEY = 'attendanceStatus';
+// Fungsi untuk membuat kunci dinamis berdasarkan ID pengguna
+const getAttendanceKey = (userId: string) => `attendanceStatus_${userId}`;
 
 // Tipe data untuk menyimpan status presensi
 export type AttendanceRecord = {
@@ -15,24 +14,27 @@ export type AttendanceRecord = {
 };
 
 /**
- * Mendapatkan status presensi untuk hari ini.
+ * Mendapatkan status presensi untuk hari ini berdasarkan ID pengguna.
  * Akan membuat record baru jika belum ada atau jika sudah ganti hari.
  */
-export const getAttendanceStatus = async (): Promise<AttendanceRecord> => {
+export const getAttendanceStatus = async (
+  userId: string
+): Promise<AttendanceRecord> => {
+  if (!userId) {
+    throw new Error('User ID is required to get attendance status.');
+  }
   try {
-    const storedData = await AsyncStorage.getItem(ATTENDANCE_STATUS_KEY);
+    const key = getAttendanceKey(userId);
+    const storedData = await AsyncStorage.getItem(key);
     const today = new Date().toISOString().slice(0, 10);
 
     if (storedData) {
       const record: AttendanceRecord = JSON.parse(storedData);
-      // Jika record ada dan untuk hari ini, kembalikan record tersebut.
       if (record.date === today) {
         return record;
       }
     }
 
-    // Jika tidak ada record, atau record dari hari sebelumnya,
-    // buat record baru dengan status 'pending' untuk hari ini.
     const newRecord: AttendanceRecord = {
       date: today,
       clockInStatus: 'pending',
@@ -43,7 +45,6 @@ export const getAttendanceStatus = async (): Promise<AttendanceRecord> => {
     return newRecord;
   } catch (error) {
     console.error('Failed to get attendance status:', error);
-    // Jika ada error, tetap kembalikan record baru untuk menghindari stuck di loading
     return {
       date: new Date().toISOString().slice(0, 10),
       clockInStatus: 'pending',
@@ -55,12 +56,36 @@ export const getAttendanceStatus = async (): Promise<AttendanceRecord> => {
 };
 
 /**
- * Menyimpan atau memperbarui status presensi.
+ * Menyimpan atau memperbarui status presensi untuk pengguna tertentu.
  */
-export const saveAttendanceStatus = async (record: AttendanceRecord) => {
+export const saveAttendanceStatus = async (
+  userId: string,
+  record: AttendanceRecord
+) => {
+  if (!userId) {
+    throw new Error('User ID is required to save attendance status.');
+  }
   try {
-    await AsyncStorage.setItem(ATTENDANCE_STATUS_KEY, JSON.stringify(record));
+    const key = getAttendanceKey(userId);
+    await AsyncStorage.setItem(key, JSON.stringify(record));
   } catch (error) {
     console.error('Failed to save attendance status:', error);
+  }
+};
+
+/**
+ * Menghapus status presensi untuk pengguna tertentu (misalnya, saat logout).
+ */
+export const clearAttendanceStatus = async (userId: string) => {
+  if (!userId) {
+    console.warn('User ID not provided, cannot clear attendance status.');
+    return;
+  }
+  try {
+    const key = getAttendanceKey(userId);
+    await AsyncStorage.removeItem(key);
+    console.log(`Attendance status cleared for user ${userId}`);
+  } catch (error) {
+    console.error('Failed to clear attendance status:', error);
   }
 };
