@@ -1,5 +1,5 @@
 import CustomConfirmationModal from '@/components/ConfirmationDialog';
-import { addLeaveItem, LeaveItem, LeaveType } from '@/utils/leaveStorage';
+import { createLeaveRequest, mapDisplayToLeaveType } from '@/services/leave';
 import { AntDesign } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { useRouter } from 'expo-router';
@@ -28,6 +28,15 @@ interface CustomTextInputProps extends TextInputProps {
   containerStyle?: ViewStyle;
 }
 
+// Frontend leave types untuk display
+type FrontendLeaveType =
+  | 'Cuti Tahunan'
+  | 'Sakit'
+  | 'Cuti Melahirkan'
+  | 'Cuti Ayah'
+  | 'Cuti Darurat'
+  | 'Cuti Tanpa Gaji';
+
 // Helper function untuk format tanggal ke bahasa Indonesia
 const formatDatesToRange = (dates: string[]): string => {
   const sortedDates = dates.sort();
@@ -55,9 +64,10 @@ const formatDatesToRange = (dates: string[]): string => {
 export default function CreateLeaveScreen() {
   const router = useRouter();
   const [selectedLeaveType, setSelectedLeaveType] =
-    useState<LeaveType>('Liburan');
+    useState<FrontendLeaveType>('Cuti Tahunan');
   const [reason, setReason] = useState<string>('');
   const [selectedDates, setSelectedDates] = useState({});
+  const [isLoading, setIsLoading] = useState(false);
 
   const [isModalVisible, setModalVisible] = useState(false);
 
@@ -97,30 +107,44 @@ export default function CreateLeaveScreen() {
 
   const handleConfirm = async () => {
     setModalVisible(false); // Tutup modal
+    setIsLoading(true);
+
     try {
-      // Logika penyimpanan data
-      const selectedDatesArray = Object.keys(selectedDates);
-      const dateRange = formatDatesToRange(selectedDatesArray);
-      const firstDate = new Date(selectedDatesArray.sort()[0]);
-      const month = firstDate.toLocaleString('id-ID', { month: 'long' });
-      const year = firstDate.getFullYear().toString();
+      const selectedDatesArray = Object.keys(selectedDates).sort();
+      const startDate = selectedDatesArray[0];
+      const endDate = selectedDatesArray[selectedDatesArray.length - 1];
 
-      const newLeaveData: Omit<LeaveItem, 'id' | 'submittedDate' | 'status'> = {
-        type: selectedLeaveType,
-        title: 'Pengajuan Cuti',
-        dateRange: dateRange,
-        month: month,
-        year: year,
-        reason: reason,
-      };
+      // Convert frontend leave type to backend format
+      const backendLeaveType = mapDisplayToLeaveType(selectedLeaveType);
 
-      await addLeaveItem(newLeaveData);
+      console.log('Submitting leave request:', {
+        leave_type: backendLeaveType,
+        start_date: startDate,
+        end_date: endDate,
+        reason: reason.trim(),
+      });
+
+      const response = await createLeaveRequest({
+        leave_type: backendLeaveType,
+        start_date: startDate,
+        end_date: endDate,
+        reason: reason.trim(),
+      });
+
+      console.log('Leave request created successfully:', response);
 
       Alert.alert('Sukses', 'Pengajuan cuti berhasil diajukan.');
       router.back();
     } catch (error) {
-      console.error('Error saat mengajukan cuti:', error);
-      Alert.alert('Error', 'Terjadi kesalahan saat mengajukan cuti.');
+      console.error('Error creating leave request:', error);
+      Alert.alert(
+        'Error',
+        error instanceof Error
+          ? error.message
+          : 'Terjadi kesalahan saat mengajukan cuti.'
+      );
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -150,15 +174,18 @@ export default function CreateLeaveScreen() {
               <Picker
                 selectedValue={selectedLeaveType}
                 onValueChange={(itemValue) =>
-                  setSelectedLeaveType(itemValue as LeaveType)
+                  setSelectedLeaveType(itemValue as FrontendLeaveType)
                 }
                 style={styles.picker}
                 mode='dropdown'
               >
                 <Picker.Item label='Pilih Tipe Cuti' value='' color='#999' />
-                <Picker.Item label='Liburan' value='Liburan' />
-                <Picker.Item label='Cuti' value='Cuti' />
+                <Picker.Item label='Cuti Tahunan' value='Cuti Tahunan' />
                 <Picker.Item label='Sakit' value='Sakit' />
+                <Picker.Item label='Cuti Melahirkan' value='Cuti Melahirkan' />
+                <Picker.Item label='Cuti Ayah' value='Cuti Ayah' />
+                <Picker.Item label='Cuti Darurat' value='Cuti Darurat' />
+                <Picker.Item label='Cuti Tanpa Gaji' value='Cuti Tanpa Gaji' />
               </Picker>
               <AntDesign
                 name='down'
@@ -226,11 +253,17 @@ export default function CreateLeaveScreen() {
       {/* Submit Button */}
       <View style={styles.buttonContainer}>
         <TouchableOpacity
-          style={styles.submitButton}
+          style={[
+            styles.submitButton,
+            isLoading && styles.submitButtonDisabled,
+          ]}
           onPress={handleAjukanCuti}
+          disabled={isLoading}
           activeOpacity={0.8}
         >
-          <Text style={styles.submitButtonText}>Ajukan Cuti</Text>
+          <Text style={styles.submitButtonText}>
+            {isLoading ? 'Mengajukan...' : 'Ajukan Cuti'}
+          </Text>
         </TouchableOpacity>
       </View>
       <CustomConfirmationModal
@@ -360,5 +393,9 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  submitButtonDisabled: {
+    backgroundColor: '#94A3B8',
+    opacity: 0.7,
   },
 });

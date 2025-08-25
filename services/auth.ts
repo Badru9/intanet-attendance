@@ -1,3 +1,4 @@
+import { getToken } from '@/utils/token';
 import { apiClient } from './api';
 
 type AuthType = {
@@ -20,6 +21,18 @@ export type LoginResponse = {
   token_type: string;
   message?: string;
   success: boolean;
+};
+
+// Type definitions for change password
+export type ChangePasswordPayload = {
+  old_password: string;
+  new_password: string;
+};
+
+export type ChangePasswordResponse = {
+  success: boolean;
+  message: string;
+  errors?: Record<string, string[]>;
 };
 
 const API_BASE_URL =
@@ -112,7 +125,7 @@ export const register = (data: RegisterType): Promise<LoginResponse> => {
             const firstErrorKey = Object.keys(errorJson.errors)[0];
             errorMessage = errorJson.errors[firstErrorKey][0];
           }
-        } catch (e) {
+        } catch {
           // Biarkan errorMessage default jika respons bukan JSON
         }
         console.error('Register error:', errorMessage);
@@ -216,6 +229,152 @@ export const refreshToken = async (token: string) => {
     return response.data;
   } catch (error: any) {
     console.error('Refresh token error:', error.response?.data);
+    throw error;
+  }
+};
+
+/**
+ * Helper function to make API requests with consistent error handling and retry mechanism
+ */
+const makeApiRequest = async (
+  endpoint: string,
+  options: RequestInit = {},
+  retries: number = 3
+): Promise<any> => {
+  const token = await getToken();
+  if (!token) {
+    throw new Error('No authentication token found. Please log in.');
+  }
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds timeout
+
+    try {
+      console.log(`API Request [${endpoint}] - Attempt ${attempt}/${retries}`);
+
+      const response = await fetch(`${API_BASE_URL}/api${endpoint}`, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+          ...options.headers,
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      // Check if response is ok before trying to parse JSON
+      if (!response.ok) {
+        // Try to get error message from response
+        let errorMessage = `Server Error: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          if (response.status === 422 && errorData.errors) {
+            // Handle Laravel validation errors
+            const firstErrorKey = Object.keys(errorData.errors)[0];
+            errorMessage = firstErrorKey
+              ? (errorData.errors[firstErrorKey] as string[])[0]
+              : 'Data yang Anda masukkan tidak valid.';
+          } else if (errorData.message) {
+            errorMessage = errorData.message;
+          }
+        } catch (parseError) {
+          console.warn('Could not parse error response:', parseError);
+        }
+
+        // Don't retry on client errors (4xx)
+        if (response.status >= 400 && response.status < 500) {
+          throw new Error(errorMessage);
+        }
+
+        // Retry on server errors (5xx) if we have attempts left
+        if (attempt < retries) {
+          console.warn(`Server error ${response.status}, retrying...`);
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
+          continue;
+        }
+
+        throw new Error(errorMessage);
+      }
+
+      const responseData = await response.json();
+      console.log(`API Response [${endpoint}]:`, responseData);
+      return responseData;
+    } catch (error) {
+      clearTimeout(timeoutId);
+
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          if (attempt < retries) {
+            console.warn(
+              `Request timeout, retrying... (${attempt}/${retries})`
+            );
+            await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait 2 seconds before retry
+            continue;
+          }
+          throw new Error(
+            'Request timed out. Please check your internet connection.'
+          );
+        }
+
+        // Handle network errors
+        if (
+          error.message.includes('Network request failed') ||
+          error.message.includes('fetch')
+        ) {
+          if (attempt < retries) {
+            console.warn(`Network error, retrying... (${attempt}/${retries})`);
+            await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait 2 seconds before retry
+            continue;
+          }
+          throw new Error(
+            'Network error. Please check your internet connection.'
+          );
+        }
+      }
+
+      console.error(
+        `Error in API request [${endpoint}] - Attempt ${attempt}:`,
+        error
+      );
+
+      // If it's the last attempt or not a retryable error, throw it
+      if (attempt === retries) {
+        throw error;
+      }
+
+      // Wait before retry for other errors
+      await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+    }
+  }
+
+  throw new Error('Max retries exceeded');
+};
+
+/**
+ * Change user password
+ */
+export const changePassword = async (
+  data: ChangePasswordPayload
+): Promise<ChangePasswordResponse> => {
+  try {
+    console.log('Changing password...');
+
+    const response = await makeApiRequest('/user/change-password', {
+      method: 'POST',
+      body: JSON.stringify({
+        old_password: data.old_password,
+        new_password: data.new_password,
+      }),
+    });
+
+    return response;
+  } catch (error) {
+    console.error('Error changing password:', error);
     throw error;
   }
 };

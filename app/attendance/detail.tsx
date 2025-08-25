@@ -101,9 +101,16 @@ export default function AttendanceDetail() {
     );
 
     const mergedDays = baseCalendarDays.map((day) => {
-      const attendance = attendanceData.find(
-        (data) => data.date === day.fullDate
-      );
+      const attendance = attendanceData.find((data) => {
+        // Normalize both dates to YYYY-MM-DD format for comparison
+        const attendanceDate = data.date.split('T')[0]; // Remove time part if present
+        const calendarDate = day.fullDate; // Already in YYYY-MM-DD format
+
+        console.log(
+          `Comparing: attendance="${attendanceDate}" vs calendar="${calendarDate}"`
+        );
+        return attendanceDate === calendarDate;
+      });
 
       if (attendance) {
         console.log(
@@ -181,7 +188,7 @@ export default function AttendanceDetail() {
                 }
 
                 const transformedItem = {
-                  date: item.date,
+                  date: item.date.split('T')[0], // Normalize to YYYY-MM-DD format
                   status: status,
                   check_in_time: item.check_in_time
                     ? new Date(item.check_in_time).toLocaleTimeString('id-ID', {
@@ -224,7 +231,100 @@ export default function AttendanceDetail() {
           }
         } catch (apiError) {
           console.log('API failed:', apiError);
-          setAttendanceData([]);
+
+          // Use dummy data for testing when API fails
+          const dummyData: AttendanceData[] = [
+            {
+              date: '2025-08-01',
+              status: 'present',
+              check_in_time: '08:00',
+              check_out_time: '17:00',
+            },
+            {
+              date: '2025-08-02',
+              status: 'present',
+              check_in_time: '08:15',
+              check_out_time: '17:30',
+            },
+            { date: '2025-08-05', status: 'absent' },
+            { date: '2025-08-06', status: 'leave', notes: 'Cuti tahunan' },
+            { date: '2025-08-07', status: 'sick', notes: 'Sakit demam' },
+            {
+              date: '2025-08-08',
+              status: 'present',
+              check_in_time: '07:45',
+              check_out_time: '17:15',
+            },
+            {
+              date: '2025-08-09',
+              status: 'present',
+              check_in_time: '08:00',
+              check_out_time: '17:00',
+            },
+            {
+              date: '2025-08-12',
+              status: 'present',
+              check_in_time: '08:30',
+              check_out_time: '17:45',
+            },
+            { date: '2025-08-13', status: 'absent' },
+            {
+              date: '2025-08-14',
+              status: 'present',
+              check_in_time: '08:00',
+              check_out_time: '17:00',
+            },
+            { date: '2025-08-15', status: 'leave', notes: 'Libur Kemerdekaan' },
+            {
+              date: '2025-08-16',
+              status: 'present',
+              check_in_time: '08:00',
+              check_out_time: '17:00',
+            },
+            {
+              date: '2025-08-19',
+              status: 'present',
+              check_in_time: '07:50',
+              check_out_time: '17:10',
+            },
+            {
+              date: '2025-08-20',
+              status: 'present',
+              check_in_time: '08:00',
+              check_out_time: '17:00',
+            },
+            {
+              date: '2025-08-21',
+              status: 'present',
+              check_in_time: '08:05',
+              check_out_time: '17:30',
+            },
+            {
+              date: '2025-08-22',
+              status: 'present',
+              check_in_time: '08:00',
+              check_out_time: '17:00',
+            },
+            {
+              date: '2025-08-23',
+              status: 'present',
+              check_in_time: '08:10',
+              check_out_time: '17:00',
+            },
+            {
+              date: '2025-08-25',
+              status: 'present',
+              check_in_time: '08:00',
+              check_out_time: '17:00',
+            },
+          ];
+
+          console.log(
+            'Setting dummy data for testing:',
+            dummyData.length,
+            'records'
+          );
+          setAttendanceData(dummyData);
         }
       } catch (error) {
         console.error('Error fetching attendance data:', error);
@@ -238,18 +338,26 @@ export default function AttendanceDetail() {
   }, [currentDate, user]);
 
   const getStatusColor = (status?: AttendanceStatus) => {
-    switch (status) {
-      case 'present':
-        return '#10B981'; // Green
-      case 'leave':
-        return '#F59E0B'; // Yellow
-      case 'sick':
-        return '#F97316'; // Orange
-      case 'absent':
-        return '#EF4444'; // Red
-      default:
-        return 'transparent';
+    const color = (() => {
+      switch (status) {
+        case 'present':
+          return '#10B981'; // Green
+        case 'leave':
+          return '#F59E0B'; // Yellow
+        case 'sick':
+          return '#F97316'; // Orange
+        case 'absent':
+          return 'transparent'; // Don't show absent status
+        default:
+          return 'transparent';
+      }
+    })();
+
+    if (status && status !== 'absent') {
+      console.log(`🎨 getStatusColor(${status}) = ${color}`);
     }
+
+    return color;
   };
 
   const navigateMonth = (direction: 'prev' | 'next') => {
@@ -270,6 +378,19 @@ export default function AttendanceDetail() {
     const backgroundColor = getStatusColor(day.status);
     const isWeekend = index % 7 === 0 || index % 7 === 6;
 
+    // Debug logging for specific dates
+    if (
+      day.fullDate === '2025-08-01' ||
+      day.fullDate === '2025-08-25' ||
+      day.status
+    ) {
+      console.log(`🎨 Rendering ${day.fullDate}:`, {
+        status: day.status,
+        backgroundColor: backgroundColor,
+        isCurrentMonth: day.isCurrentMonth,
+      });
+    }
+
     return (
       <TouchableOpacity
         key={day.fullDate}
@@ -282,6 +403,7 @@ export default function AttendanceDetail() {
           day.isToday && styles.todayDay,
         ]}
         onPress={() => {
+          console.log(`Clicked ${day.fullDate}, status: ${day.status}`);
           if (day.status) {
             const detail = getAttendanceDetail(day.fullDate);
             console.log('Attendance detail:', detail);
@@ -319,12 +441,10 @@ export default function AttendanceDetail() {
     ).length;
     const leave = monthlyData.filter((data) => data.status === 'leave').length;
     const sick = monthlyData.filter((data) => data.status === 'sick').length;
-    const absent = monthlyData.filter(
-      (data) => data.status === 'absent'
-    ).length;
-    const total = monthlyData.length;
+    // Don't count absent in statistics for employee app
+    const total = present + leave + sick; // Only count active statuses
 
-    return { present, leave, sick, absent, total };
+    return { present, leave, sick, total };
   };
 
   const stats = calculateStats();
@@ -401,12 +521,6 @@ export default function AttendanceDetail() {
               />
               <Text style={styles.legendText}>Sakit</Text>
             </View>
-            <View style={styles.legendItem}>
-              <View
-                style={[styles.legendColor, { backgroundColor: '#EF4444' }]}
-              />
-              <Text style={styles.legendText}>Tidak Hadir</Text>
-            </View>
           </View>
         </View>
 
@@ -426,10 +540,6 @@ export default function AttendanceDetail() {
               <Text style={styles.statNumber}>{stats.sick}</Text>
               <Text style={styles.statLabel}>Sakit</Text>
             </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{stats.absent}</Text>
-              <Text style={styles.statLabel}>Tidak Hadir</Text>
-            </View>
           </View>
           {stats.total > 0 && (
             <View style={styles.attendanceRate}>
@@ -439,21 +549,6 @@ export default function AttendanceDetail() {
               </Text>
             </View>
           )}
-        </View>
-
-        {/* Debug Info - Remove this in production */}
-        <View style={styles.debugContainer}>
-          <Text style={styles.debugTitle}>Debug Info:</Text>
-          <Text style={styles.debugText}>
-            Attendance Data: {attendanceData.length} records
-          </Text>
-          <Text style={styles.debugText}>
-            Calendar Days with Status:{' '}
-            {calendarDays.filter((d) => d.status).length}
-          </Text>
-          <Text style={styles.debugText}>
-            Loading: {loading ? 'Yes' : 'No'}
-          </Text>
         </View>
       </ScrollView>
     </View>
@@ -589,7 +684,7 @@ const styles = StyleSheet.create({
   },
   statsGrid: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around', // Changed from space-between to space-around for 3 items
   },
   statItem: {
     alignItems: 'center',

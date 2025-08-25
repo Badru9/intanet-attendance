@@ -3,7 +3,6 @@ import { useAuth } from '@/contexts/authContext';
 import { UserType } from '@/types';
 import { getUser } from '@/utils/user';
 import { Feather } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -25,22 +24,21 @@ enum ScreenNames {
 export default function Profile() {
   const [user, setUser] = useState<UserType>();
 
-  const navigation = useNavigation();
+  // const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { logout: handleLogout, isLoading } = useAuth();
 
   // Fungsi spesifik untuk navigasi ke Personal Information
-  const handlePersonalInformation = () => {
-    console.log('Navigating to Personal Information screen');
-    // Tambahkan navigasi ke Personal Information di sini
-    // router.push('/personal-information');
-  };
+  // const handlePersonalInformation = () => {
+  //   console.log('Navigating to Personal Information screen');
+  //   // Tambahkan navigasi ke Personal Information di sini
+  //   // router.push('/personal-information');
+  // };
 
   // Fungsi spesifik untuk navigasi ke Change Password
   const handleChangePassword = () => {
     console.log('Navigating to Change Password screen');
-    // Tambahkan navigasi ke Change Password di sini
-    // router.push('/change-password');
+    router.push('/change-password');
   };
 
   // Fungsi spesifik untuk Logout
@@ -102,13 +100,13 @@ export default function Profile() {
       </View>
 
       <View style={styles.content}>
-        <TouchableOpacity
+        {/* <TouchableOpacity
           style={styles.menuItem}
           onPress={handlePersonalInformation}
         >
           <Text style={styles.menuText}>Personal Information</Text>
           <Feather name='chevron-right' size={20} color='#666' />
-        </TouchableOpacity>
+        </TouchableOpacity> */}
 
         <TouchableOpacity
           style={styles.menuItem}
@@ -118,10 +116,7 @@ export default function Profile() {
           <Feather name='chevron-right' size={20} color='#666' />
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={{ ...styles.menuItem, marginTop: 50 }}
-          onPress={handleLogoutPress}
-        >
+        <TouchableOpacity style={styles.menuItem} onPress={handleLogoutPress}>
           <Text style={styles.menuText}>Logout</Text>
           <Feather name='log-out' size={20} color='#666' />
         </TouchableOpacity>

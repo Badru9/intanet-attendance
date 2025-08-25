@@ -1,15 +1,20 @@
 import {
-  getLeaveData,
-  LeaveItem,
+  formatDateRange,
+  getLeaveRequests,
+  LeaveRequestData,
   LeaveStatus,
   LeaveType,
-} from '@/utils/leaveStorage';
+  mapLeaveStatusToDisplay,
+  mapLeaveTypeToDisplay,
+} from '@/services/leave';
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
+  FlatList,
   RefreshControl,
   SafeAreaView,
   ScrollView,
@@ -25,24 +30,67 @@ type LeaveFilterType = 'All' | LeaveType;
 
 export default function LeaveListScreen() {
   const [selectedFilter, setSelectedFilter] = useState<LeaveFilterType>('All');
-  const [leaveData, setLeaveData] = useState<LeaveItem[]>([]);
+  const [leaveData, setLeaveData] = useState<LeaveRequestData[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const filterButtons: LeaveFilterType[] = ['All', 'Liburan', 'Cuti', 'Sakit'];
+  const filterButtons: { label: string; value: LeaveFilterType }[] = [
+    { label: 'Semua', value: 'All' },
+    { label: 'Cuti Tahunan', value: 'annual' },
+    { label: 'Sakit', value: 'sick' },
+    { label: 'Cuti Melahirkan', value: 'maternity' },
+    { label: 'Cuti Ayah', value: 'paternity' },
+    { label: 'Cuti Darurat', value: 'emergency' },
+    { label: 'Cuti Tanpa Gaji', value: 'unpaid' },
+  ];
 
   const fetchLeaveData = useCallback(async () => {
-    setRefreshing(true);
     try {
-      const data = await getLeaveData();
-      setLeaveData(data);
+      setRefreshing(true);
+      console.log('Starting to fetch leave data...');
+
+      const response = await getLeaveRequests(1, 50); // Get more items for filtering
+
+      if (response.success && response.data) {
+        console.log(
+          'Leave data fetched successfully:',
+          response.data.data.length,
+          'items'
+        );
+        setLeaveData(response.data.data);
+      } else {
+        console.warn('Invalid response format:', response);
+        throw new Error('Invalid response from server');
+      }
     } catch (error) {
       console.error('Failed to fetch leave data:', error);
-      Alert.alert('Error', 'Gagal memuat data cuti.');
+
+      // More specific error messages
+      if (error instanceof Error) {
+        if (error.message.includes('Network')) {
+          Alert.alert(
+            'Kesalahan Jaringan',
+            'Periksa koneksi internet Anda dan coba lagi.'
+          );
+        } else if (error.message.includes('timeout')) {
+          Alert.alert(
+            'Koneksi Lambat',
+            'Permintaan memakan waktu terlalu lama. Silakan coba lagi.'
+          );
+        } else if (error.message.includes('authentication')) {
+          Alert.alert('Sesi Berakhir', 'Silakan login ulang.');
+        } else {
+          Alert.alert('Error', `Gagal memuat data cuti: ${error.message}`);
+        }
+      } else {
+        Alert.alert('Error', 'Gagal memuat data cuti. Silakan coba lagi.');
+      }
     } finally {
       setRefreshing(false);
+      setIsLoading(false);
     }
   }, []);
 
@@ -55,11 +103,11 @@ export default function LeaveListScreen() {
 
   const getStatusColor = (status: LeaveStatus): string => {
     switch (status) {
-      case 'Sedang Diproses':
+      case 'pending':
         return '#FF9500';
-      case 'Disetujui':
+      case 'approved':
         return '#34C759';
-      case 'Ditolak':
+      case 'rejected':
         return '#FF3B30';
       default:
         return '#666666';
@@ -68,61 +116,102 @@ export default function LeaveListScreen() {
 
   const getTypeColor = (type: LeaveType): string => {
     switch (type) {
-      case 'Liburan':
-        return '#007AFF';
-      case 'Cuti':
-        return '#32D74B';
-      case 'Sakit':
-        return '#FF9500';
+      case 'annual':
+        return '#2196F3';
+      case 'sick':
+        return '#9C27B0';
+      case 'maternity':
+        return '#E91E63';
+      case 'paternity':
+        return '#3F51B5';
+      case 'emergency':
+        return '#FF5722';
+      case 'unpaid':
+        return '#795548';
       default:
-        return '#007AFF';
+        return '#607D8B';
     }
   };
 
   const getLeaveCount = (type: LeaveFilterType): number => {
     if (type === 'All') return leaveData.length;
-    return leaveData.filter((item) => item.type === type).length;
+    return leaveData.filter((item) => item.leave_type === type).length;
   };
 
   const filteredData =
     selectedFilter === 'All'
       ? leaveData
-      : leaveData.filter((item) => item.type === selectedFilter);
-
-  const groupedData = filteredData.reduce(
-    (acc, item) => {
-      const key = `${item.month} ${item.year}`;
-      if (!acc[key]) {
-        acc[key] = [];
-      }
-      acc[key].push(item);
-      return acc;
-    },
-    {} as Record<string, LeaveItem[]>
-  );
+      : leaveData.filter((item) => item.leave_type === selectedFilter);
 
   const handleAddLeave = () => {
     router.push('/leave/create-leave');
   };
 
-  const handleLeaveItemPress = (item: LeaveItem) => {
+  const handleLeaveItemPress = (item: LeaveRequestData) => {
     router.push({
       pathname: '/leave/[id]',
-      params: { id: item.id },
+      params: { id: item.id.toString() },
     });
   };
 
-  return (
-    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-        contentInsetAdjustmentBehavior='automatic'
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={fetchLeaveData} />
-        }
-      >
-        {/* Header */}
+  const renderLeaveItem = ({ item }: { item: LeaveRequestData }) => (
+    <TouchableOpacity
+      style={styles.leaveCard}
+      onPress={() => handleLeaveItemPress(item)}
+      activeOpacity={0.7}
+    >
+      <View style={styles.cardHeader}>
+        <View style={styles.cardTitleContainer}>
+          <Text style={styles.cardTitle}>
+            {mapLeaveTypeToDisplay(item.leave_type)}
+          </Text>
+          <Text style={styles.cardDate}>
+            {formatDateRange(item.start_date, item.end_date)}
+          </Text>
+          <Text style={styles.cardDays}>{item.total_days} hari kerja</Text>
+          {item.reason && (
+            <Text style={styles.cardReason} numberOfLines={2}>
+              {item.reason}
+            </Text>
+          )}
+        </View>
+        <View
+          style={[
+            styles.statusBadge,
+            { backgroundColor: getStatusColor(item.status) },
+          ]}
+        >
+          <Text style={[styles.statusText, { color: '#FFFFFF' }]}>
+            {mapLeaveStatusToDisplay(item.status)}
+          </Text>
+        </View>
+      </View>
+      <View style={styles.cardFooter}>
+        <View
+          style={[
+            styles.typeButton,
+            { backgroundColor: getTypeColor(item.leave_type) + '15' },
+          ]}
+        >
+          <Text
+            style={[
+              styles.typeButtonText,
+              { color: getTypeColor(item.leave_type) },
+            ]}
+          >
+            {mapLeaveTypeToDisplay(item.leave_type)}
+          </Text>
+        </View>
+        <Text style={styles.submittedDate}>
+          Diajukan: {new Date(item.created_at).toLocaleDateString('id-ID')}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Pengajuan Cuti</Text>
           <TouchableOpacity
@@ -133,122 +222,81 @@ export default function LeaveListScreen() {
             <Feather name='plus' size={24} color='#FFFFFF' />
           </TouchableOpacity>
         </View>
+        <View style={styles.centeredContainer}>
+          <ActivityIndicator size='large' color='#007AFF' />
+          <Text style={styles.loadingText}>Memuat data cuti...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
-        {/* Filter Buttons */}
-        <View style={styles.filterContainer}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.filterScrollContent}
-          >
-            {filterButtons.map((filter) => (
-              <TouchableOpacity
-                key={filter}
+  return (
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Pengajuan Cuti</Text>
+        <TouchableOpacity
+          style={styles.addButton}
+          onPress={handleAddLeave}
+          activeOpacity={0.7}
+        >
+          <Feather name='plus' size={24} color='#FFFFFF' />
+        </TouchableOpacity>
+      </View>
+
+      {/* Filter Buttons */}
+      <View style={styles.filterContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterScrollContent}
+        >
+          {filterButtons.map((filter) => (
+            <TouchableOpacity
+              key={filter.value}
+              style={[
+                styles.filterButton,
+                selectedFilter === filter.value && styles.filterButtonActive,
+              ]}
+              onPress={() => setSelectedFilter(filter.value)}
+              activeOpacity={0.7}
+            >
+              <Text
                 style={[
-                  styles.filterButton,
-                  selectedFilter === filter && styles.filterButtonActive,
+                  styles.filterButtonText,
+                  selectedFilter === filter.value &&
+                    styles.filterButtonTextActive,
                 ]}
-                onPress={() => setSelectedFilter(filter)}
-                activeOpacity={0.7}
               >
-                <Text
-                  style={[
-                    styles.filterButtonText,
-                    selectedFilter === filter && styles.filterButtonTextActive,
-                  ]}
-                >
-                  {filter} ({getLeaveCount(filter)})
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* Leave Items */}
-        <View style={styles.content}>
-          {Object.keys(groupedData).length === 0 ? (
-            <View style={styles.emptyState}>
-              <Feather name='calendar' size={48} color='#CCCCCC' />
-              <Text style={styles.emptyStateTitle}>Tidak Ada Data Cuti</Text>
-              <Text style={styles.emptyStateSubtitle}>
-                {selectedFilter === 'All'
-                  ? 'Belum ada pengajuan cuti yang dibuat'
-                  : `Tidak ada cuti dengan tipe "${selectedFilter}"`}
+                {filter.label} ({getLeaveCount(filter.value)})
               </Text>
-            </View>
-          ) : (
-            Object.entries(groupedData)
-              .sort(([a], [b]) => {
-                const [monthA, yearA] = a.split(' ');
-                const [monthB, yearB] = b.split(' ');
-                if (yearA !== yearB) return parseInt(yearB) - parseInt(yearA);
-                return monthB.localeCompare(monthA);
-              })
-              .map(([monthYear, items]) => (
-                <View key={monthYear} style={styles.monthSection}>
-                  <Text style={styles.monthTitle}>{monthYear}</Text>
-                  {items.map((item) => (
-                    <TouchableOpacity
-                      key={item.id}
-                      style={styles.leaveCard}
-                      onPress={() => handleLeaveItemPress(item)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.cardHeader}>
-                        <View style={styles.cardTitleContainer}>
-                          <Text style={styles.cardTitle}>{item.title}</Text>
-                          <Text style={styles.cardDate}>{item.dateRange}</Text>
-                          {item.reason && (
-                            <Text style={styles.cardReason} numberOfLines={2}>
-                              {item.reason}
-                            </Text>
-                          )}
-                        </View>
-                        <View
-                          style={[
-                            styles.statusBadge,
-                            { backgroundColor: getStatusColor(item.status) },
-                          ]}
-                        >
-                          <Text
-                            style={[styles.statusText, { color: '#FFFFFF' }]}
-                          >
-                            {item.status}
-                          </Text>
-                        </View>
-                      </View>
-                      <View style={styles.cardFooter}>
-                        <View
-                          style={[
-                            styles.typeButton,
-                            { backgroundColor: getTypeColor(item.type) + '15' },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.typeButtonText,
-                              { color: getTypeColor(item.type) },
-                            ]}
-                          >
-                            {item.type}
-                          </Text>
-                        </View>
-                        {item.submittedDate && (
-                          <Text style={styles.submittedDate}>
-                            Diajukan:{' '}
-                            {new Date(item.submittedDate).toLocaleDateString(
-                              'id-ID'
-                            )}
-                          </Text>
-                        )}
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              ))
-          )}
-        </View>
-      </ScrollView>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
+      {/* Leave Items */}
+      <FlatList
+        data={filteredData}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={renderLeaveItem}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={fetchLeaveData} />
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Feather name='calendar' size={48} color='#CCCCCC' />
+            <Text style={styles.emptyStateTitle}>Tidak Ada Data Cuti</Text>
+            <Text style={styles.emptyStateSubtitle}>
+              {selectedFilter === 'All'
+                ? 'Belum ada pengajuan cuti yang dibuat'
+                : `Tidak ada cuti dengan tipe "${filterButtons.find((f) => f.value === selectedFilter)?.label}"`}
+            </Text>
+          </View>
+        }
+      />
     </SafeAreaView>
   );
 }
@@ -258,8 +306,16 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F5F5',
   },
-  scrollView: {
+  centeredContainer: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#666666',
   },
   header: {
     flexDirection: 'row',
@@ -324,7 +380,7 @@ const styles = StyleSheet.create({
   filterButtonTextActive: {
     color: '#FFFFFF',
   },
-  content: {
+  listContent: {
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 100, // Space for bottom tab bar
@@ -346,15 +402,6 @@ const styles = StyleSheet.create({
     color: '#CCCCCC',
     textAlign: 'center',
     lineHeight: 20,
-  },
-  monthSection: {
-    marginBottom: 24,
-  },
-  monthTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000000',
-    marginBottom: 12,
   },
   leaveCard: {
     backgroundColor: '#FFFFFF',
@@ -388,6 +435,12 @@ const styles = StyleSheet.create({
   cardDate: {
     fontSize: 14,
     color: '#666666',
+    marginBottom: 2,
+  },
+  cardDays: {
+    fontSize: 13,
+    color: '#007AFF',
+    fontWeight: '500',
     marginBottom: 4,
   },
   cardReason: {
