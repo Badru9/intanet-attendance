@@ -41,15 +41,23 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   useEffect(() => {
     const loadAuthData = async () => {
       try {
+        console.log('=== LOADING AUTH DATA FROM STORAGE ===');
         const storedAuthData = await getUser();
 
+        console.log('Stored auth data:', storedAuthData);
+
         if (storedAuthData.token && storedAuthData.user) {
+          console.log('Setting user and token from storage...');
           setToken(storedAuthData.token);
           setUser(storedAuthData.user);
+          console.log('User and token set from storage successfully');
+        } else {
+          console.log('No valid user/token found in storage');
         }
       } catch (error) {
         console.error('Failed to load auth data from storage', error);
       } finally {
+        console.log('Setting isLoading to false');
         setIsLoading(false);
       }
     };
@@ -59,13 +67,22 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   const login = async (data: any) => {
     try {
+      console.log('=== AUTHCONTEXT LOGIN START ===');
+      console.log('Login payload:', data);
+
       const response: LoginResponse = await loginApi(data);
+      console.log('Login API response:', response);
+
       const newToken = response.access_token;
       const newUser = response.user as UserType;
+
+      console.log('New user data:', newUser);
+      console.log('New token exists:', !!newToken);
 
       // Gunakan fungsi utilitas untuk menyimpan data pengguna dan token
       await saveUser(newUser, newToken);
 
+      console.log('Setting user and token in state...');
       setToken(newToken);
       setUser(newUser);
 

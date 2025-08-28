@@ -13,9 +13,20 @@ export const saveUser = async (
   token: string
 ): Promise<void> => {
   try {
+    console.log('=== SAVING USER DATA ===');
+    console.log('User data to save:', user);
+    console.log('Token to save:', token ? 'Token exists' : 'No token');
+
     await AsyncStorage.setItem('user_token', token);
     await AsyncStorage.setItem('user_data', JSON.stringify(user));
+
     console.log('User data and token saved successfully.');
+
+    // Verify data was saved
+    const savedUserData = await AsyncStorage.getItem('user_data');
+    const savedToken = await AsyncStorage.getItem('user_token');
+    console.log('Verification - Saved user data:', savedUserData);
+    console.log('Verification - Saved token exists:', !!savedToken);
   } catch (error) {
     console.error('Terjadi error ketika menyimpan data:', error);
     throw new Error('Terjadi error saat menyimpan data' + error);
@@ -29,14 +40,22 @@ export const saveUser = async (
  */
 export const getUser = async () => {
   try {
+    console.log('=== GETTING USER DATA FROM STORAGE ===');
+
     const userData = await AsyncStorage.getItem('user_data');
     const userToken = await AsyncStorage.getItem('user_token');
 
-    console.log('User data from AsyncStorage:', userData);
-    console.log('Token from AsyncStorage:', userToken);
+    console.log('Raw user data from AsyncStorage:', userData);
+    console.log(
+      'Raw token from AsyncStorage:',
+      userToken ? 'Token exists' : 'No token'
+    );
+
+    const parsedUser = userData ? JSON.parse(userData) : null;
+    console.log('Parsed user data:', parsedUser);
 
     return {
-      user: userData ? JSON.parse(userData) : null,
+      user: parsedUser,
       token: userToken || null,
     };
   } catch (error) {

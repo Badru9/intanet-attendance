@@ -39,7 +39,7 @@ type ButtonProps = {
 
 export default function Home() {
   const router = useRouter();
-  const { user } = useAuth(); // Menggunakan user dari AuthContext
+  const { user, isLoading: authLoading } = useAuth(); // Tambahkan authLoading
   const [currentDate, setCurrentDate] = useState<string>('');
   const [currentTime, setCurrentTime] = useState<string>('');
   const [isApiLoading, setIsApiLoading] = useState(false);
@@ -49,65 +49,113 @@ export default function Home() {
     clockIn: '--:--',
     clockOut: '--:--',
   });
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   const animatedScale = useRef(new Animated.Value(1)).current;
 
+  // Untuk refresh data setelah absensi
+  const loadDataRef = useRef<() => Promise<void> | null>(null);
+
   useEffect(() => {
-    const loadData = async () => {
-      if (user) {
-        try {
+    console.log('=== USE EFFECT TRIGGERED ===');
+    console.log('Auth loading:', authLoading);
+    console.log('User exists:', !!user);
+    console.log('User details:', user);
+    console.log('User ID:', user?.id);
+    console.log('User name:', user?.name);
+    console.log('User email:', user?.email);
+
+    // Jangan lakukan apapun jika auth masih loading
+    if (authLoading) {
+      console.log('Auth still loading, waiting...');
+      return;
+    }
+
+    let isMounted = true; // Flag untuk mencegah state update setelah unmount
+
+    const loadData = async (isManualRefresh = false) => {
+      console.log('=== LOAD DATA START ===');
+      console.log('User status:', !!user);
+      console.log('User data:', user);
+      console.log('Is manual refresh:', isManualRefresh);
+      console.log('Is mounted:', isMounted);
+
+      if (!user) {
+        console.log('No user found, setting to loading state');
+        // Jika tidak ada user, set ke loading state
+        if (isMounted) {
           setAttendanceStatus('loading');
+          setAttendanceTimes({ clockIn: '--:--', clockOut: '--:--' });
+          setIsInitialLoading(false);
+        }
+        return;
+      }
 
-          // Pertama, cek status dari backend
-          try {
-            const backendResponse = await getAttendanceStatusFromBackend();
+      try {
+        console.log(
+          'Starting to load attendance data for user:',
+          user.id,
+          isManualRefresh ? '(Manual Refresh)' : '(Auto Load)'
+        );
 
-            console.log('Backend response:', backendResponse);
+        // Set loading hanya jika ini adalah initial load
+        if (!isManualRefresh && isMounted) {
+          setAttendanceStatus('loading');
+        }
 
-            if (backendResponse.success && backendResponse.data) {
-              const backendData = backendResponse.data;
-              const today = new Date().toISOString().slice(0, 10);
+        // Pertama, coba ambil data dari backend
+        let backendSuccess = false;
+        try {
+          console.log('Attempting to fetch from backend...');
+          const backendResponse = await getAttendanceStatusFromBackend();
+          console.log('Backend response received:', backendResponse);
 
-              if (backendData.today_date === today) {
-                let clockInTime = '--:--';
-                let clockOutTime = '--:--';
+          if (backendResponse.success && backendResponse.data) {
+            const backendData = backendResponse.data;
+            const today = new Date().toISOString().slice(0, 10);
 
-                // Ambil data dari today_attendance jika ada
-                if (backendData.today_attendance) {
-                  if (backendData.today_attendance.check_in_time) {
-                    clockInTime = new Date(
-                      backendData.today_attendance.check_in_time
-                    ).toLocaleTimeString('id-ID', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    });
-                  }
+            if (backendData.today_date === today) {
+              let clockInTime = '--:--';
+              let clockOutTime = '--:--';
 
-                  if (backendData.today_attendance.check_out_time) {
-                    clockOutTime = new Date(
-                      backendData.today_attendance.check_out_time
-                    ).toLocaleTimeString('id-ID', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    });
-                  }
+              // Ambil data dari today_attendance jika ada
+              if (backendData.today_attendance) {
+                if (backendData.today_attendance.check_in_time) {
+                  clockInTime = new Date(
+                    backendData.today_attendance.check_in_time
+                  ).toLocaleTimeString('id-ID', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  });
                 }
 
-                // Update local storage dengan data terbaru dari backend
-                const localRecord = {
-                  date: backendData.today_date,
-                  clockInStatus: backendData.has_checked_in_today
-                    ? ('completed' as const)
-                    : ('pending' as const),
-                  clockInTime: clockInTime,
-                  clockOutStatus: backendData.has_checked_out_today
-                    ? ('completed' as const)
-                    : ('pending' as const),
-                  clockOutTime: clockOutTime,
-                };
+                if (backendData.today_attendance.check_out_time) {
+                  clockOutTime = new Date(
+                    backendData.today_attendance.check_out_time
+                  ).toLocaleTimeString('id-ID', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  });
+                }
+              }
 
-                await saveAttendanceStatus(String(user.id), localRecord);
+              // Update local storage dengan data terbaru dari backend
+              const localRecord = {
+                date: backendData.today_date,
+                clockInStatus: backendData.has_checked_in_today
+                  ? ('completed' as const)
+                  : ('pending' as const),
+                clockInTime: clockInTime,
+                clockOutStatus: backendData.has_checked_out_today
+                  ? ('completed' as const)
+                  : ('pending' as const),
+                clockOutTime: clockOutTime,
+              };
 
+              await saveAttendanceStatus(String(user.id), localRecord);
+
+              // Update state dengan data dari backend hanya jika component masih mounted
+              if (isMounted) {
                 setAttendanceTimes({
                   clockIn: clockInTime,
                   clockOut: clockOutTime,
@@ -121,26 +169,47 @@ export default function Home() {
                 } else {
                   setAttendanceStatus('clock_in_pending');
                 }
-              } else {
-                // Hari yang berbeda, reset status
+              }
+
+              backendSuccess = true;
+              console.log('Successfully loaded data from backend');
+            } else {
+              // Hari yang berbeda, reset status
+              console.log('Different date detected, resetting status');
+              if (isMounted) {
                 setAttendanceStatus('clock_in_pending');
                 setAttendanceTimes({ clockIn: '--:--', clockOut: '--:--' });
               }
-            } else {
-              // Tidak ada data dari backend, fallback ke local storage
-              throw new Error('No backend data available');
+              backendSuccess = true;
             }
-          } catch (backendError) {
-            console.log(
-              'Backend check failed, falling back to local storage:',
-              backendError
-            );
+          }
+        } catch (backendError) {
+          console.log(
+            'Backend check failed, will fallback to local storage. Error:',
+            backendError
+          );
 
-            // Fallback ke local storage jika backend gagal
+          // Jika error adalah network error, beri informasi pada user
+          if (
+            backendError instanceof Error &&
+            (backendError.message.includes('Network') ||
+              backendError.message.includes('timeout') ||
+              backendError.message.includes('fetch'))
+          ) {
+            console.log('Network error detected, using offline mode');
+            // Optional: show toast or alert about offline mode
+          }
+        }
+
+        // Jika backend gagal, fallback ke local storage
+        if (!backendSuccess) {
+          console.log('Falling back to local storage');
+          try {
             const record = await getAttendanceStatus(String(user.id));
-            if (record) {
-              const today = new Date().toISOString().slice(0, 10);
-              if (record.date === today) {
+            const today = new Date().toISOString().slice(0, 10);
+
+            if (record.date === today) {
+              if (isMounted) {
                 setAttendanceTimes({
                   clockIn: record.clockInTime || '--:--',
                   clockOut: record.clockOutTime || '--:--',
@@ -153,50 +222,115 @@ export default function Home() {
                 } else {
                   setAttendanceStatus('clock_in_pending');
                 }
-              } else {
+              }
+            } else {
+              // Reset untuk hari baru
+              if (isMounted) {
                 setAttendanceStatus('clock_in_pending');
                 setAttendanceTimes({ clockIn: '--:--', clockOut: '--:--' });
               }
-            } else {
+            }
+            console.log('Successfully loaded data from local storage');
+          } catch (localError) {
+            console.error('Failed to load from local storage:', localError);
+            // Fallback terakhir - set ke pending state
+            if (isMounted) {
               setAttendanceStatus('clock_in_pending');
+              setAttendanceTimes({ clockIn: '--:--', clockOut: '--:--' });
             }
           }
-        } catch (e) {
-          console.error('Failed to load attendance data:', e);
-          setAttendanceStatus('clock_in_pending'); // Fallback
         }
-      } else {
-        // Jika tidak ada user, reset ke state awal
-        setAttendanceStatus('loading');
-        setAttendanceTimes({ clockIn: '--:--', clockOut: '--:--' });
+      } catch (error) {
+        console.error('Failed to load attendance data:', error);
+        // Ensure status is not stuck in loading
+        if (isMounted) {
+          setAttendanceStatus('clock_in_pending');
+          setAttendanceTimes({ clockIn: '--:--', clockOut: '--:--' });
+        }
+      } finally {
+        if (isMounted) {
+          setIsInitialLoading(false);
+        }
       }
     };
 
-    loadData();
+    // Simpan reference untuk manual refresh
+    loadDataRef.current = () => loadData(true);
 
+    // Load data pertama kali
+    loadData(false);
+
+    // Setup time updates
     const updateDateTime = () => {
-      const now = new Date();
-      setCurrentDate(
-        now.toLocaleDateString('id-ID', {
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-        })
-      );
-      setCurrentTime(
-        now.toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false,
-        })
-      );
+      if (isMounted) {
+        const now = new Date();
+        setCurrentDate(
+          now.toLocaleDateString('id-ID', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+          })
+        );
+        setCurrentTime(
+          now.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          })
+        );
+      }
     };
 
     updateDateTime();
     const intervalId = setInterval(updateDateTime, 1000);
 
-    return () => clearInterval(intervalId);
-  }, [user]); // Re-run effect ketika user berubah
+    return () => {
+      isMounted = false; // Set flag ketika component akan unmount
+      clearInterval(intervalId);
+    };
+  }, [user, authLoading]); // Only depend on user and authLoading, NOT isInitialLoading to avoid loops
+
+  // Fungsi untuk manual refresh data
+  const refreshAttendanceData = async () => {
+    console.log('=== MANUAL REFRESH TRIGGERED ===');
+    console.log('User:', !!user);
+    console.log('Auth loading:', authLoading);
+    console.log('API loading:', isApiLoading);
+    console.log('Initial loading:', isInitialLoading);
+
+    if (!user) {
+      console.log('No user, showing alert');
+      Alert.alert('Error', 'User tidak ditemukan');
+      return;
+    }
+
+    if (authLoading) {
+      console.log('Auth still loading, cannot refresh');
+      Alert.alert('Info', 'Tunggu proses login selesai');
+      return;
+    }
+
+    if (isApiLoading) {
+      console.log('API call in progress, cannot refresh');
+      Alert.alert('Info', 'Sedang memproses permintaan lain');
+      return;
+    }
+
+    if (loadDataRef.current) {
+      console.log('Calling loadDataRef.current()');
+      setIsInitialLoading(true);
+      try {
+        await loadDataRef.current();
+        console.log('Manual refresh completed successfully');
+      } catch (error) {
+        console.error('Manual refresh failed:', error);
+        Alert.alert('Error', 'Gagal memuat ulang data kehadiran');
+      }
+    } else {
+      console.log('loadDataRef.current is null');
+      Alert.alert('Error', 'Fungsi refresh tidak tersedia');
+    }
+  };
 
   const handleClockIn = async () => {
     if (isApiLoading || !user) return;
@@ -244,6 +378,8 @@ export default function Home() {
               clockIn: newRecord.clockInTime,
             });
             Alert.alert('Sukses', response.message);
+            // Refresh data dari backend agar UI update
+            if (loadDataRef.current) await loadDataRef.current();
           } else {
             Alert.alert('Gagal', response.message);
           }
@@ -305,6 +441,8 @@ export default function Home() {
                 clockOut: updatedRecord.clockOutTime,
               });
               Alert.alert('Sukses', response.message);
+              // Refresh data dari backend agar UI update
+              if (loadDataRef.current) await loadDataRef.current();
             }
           } else {
             Alert.alert('Gagal', response.message);
@@ -322,6 +460,13 @@ export default function Home() {
   };
 
   const getButtonProps = (): ButtonProps => {
+    // Log setiap kali buttonProps di-render
+    console.log('RENDER BUTTON:', {
+      attendanceStatus,
+      isApiLoading,
+      isInitialLoading,
+    });
+
     if (isApiLoading) {
       return {
         onPress: () => {},
@@ -331,34 +476,43 @@ export default function Home() {
       };
     }
 
+    // Show loading if still initial loading or if status is loading
+    if (isInitialLoading || attendanceStatus === 'loading') {
+      return {
+        onPress: () => {},
+        text: 'Memuat...',
+        colors: ['#0F172A'],
+        disabled: true,
+      };
+    }
+
     switch (attendanceStatus) {
       case 'clock_in_pending':
         return {
           onPress: handleClockIn,
           text: 'Masuk',
-          colors: ['#2563EB'], // Pass as an array
+          colors: ['#2563EB'],
           disabled: false,
         };
       case 'clock_out_pending':
         return {
           onPress: handleClockOut,
           text: 'Pulang',
-          colors: ['#EF4444'], // Pass as an array
+          colors: ['#EF4444'],
           disabled: false,
         };
       case 'completed':
         return {
           onPress: () => {},
           text: 'Sudah Absen',
-          colors: ['#10B981'], // Pass as an array
+          colors: ['#10B981'],
           disabled: true,
         };
-      case 'loading':
       default:
         return {
           onPress: () => {},
           text: 'Memuat...',
-          colors: ['#0F172A'], // Pass as an array
+          colors: ['#0F172A'],
           disabled: true,
         };
     }
@@ -371,10 +525,17 @@ export default function Home() {
       <StatusBar barStyle='dark-content' translucent />
       {/* Header */}
       <View style={styles.header}>
-        {/* <Image
-          source={{ uri: 'https://i.pravatar.cc/150?img=50' }}
-          style={styles.profileImage}
-        /> */}
+        <TouchableOpacity
+          style={styles.refreshButton}
+          onPress={refreshAttendanceData}
+          disabled={isApiLoading || isInitialLoading}
+        >
+          <Feather
+            name='refresh-cw'
+            size={20}
+            color={isApiLoading || isInitialLoading ? '#9CA3AF' : '#000'}
+          />
+        </TouchableOpacity>
         <TouchableOpacity
           style={styles.calendarButton}
           onPress={() => router.push('/attendance/detail')}
@@ -386,8 +547,12 @@ export default function Home() {
       <View style={styles.mainContent}>
         {/* Time and Date Section */}
         <View style={styles.timeSection}>
+          {/* {user && <Text style={styles.greetingText}>Halo, {user.name}!</Text>} */}
           <Text style={styles.currentTimeText}>{currentTime}</Text>
           <Text style={styles.currentDateText}>{currentDate}</Text>
+          {isInitialLoading && (
+            <Text style={styles.loadingText}>Memuat data kehadiran...</Text>
+          )}
         </View>
         {/* Attendance Button */}
         <View style={styles.buttonSection}>
@@ -443,11 +608,18 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 60,
     paddingBottom: 20,
+  },
+  refreshButton: {
+    borderColor: '#E5E7EB',
+    borderWidth: 1,
+    padding: 12,
+    borderRadius: 50,
+    marginRight: 10,
   },
   profileImage: {
     width: 48,
@@ -471,6 +643,12 @@ const styles = StyleSheet.create({
     marginTop: 60,
     marginBottom: 80,
   },
+  greetingText: {
+    fontSize: 18,
+    color: '#4B5563',
+    marginBottom: 20,
+    fontWeight: '500',
+  },
   currentTimeText: {
     fontSize: 56,
     fontWeight: '300',
@@ -481,6 +659,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#718096',
     marginTop: 8,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    marginTop: 8,
+    fontStyle: 'italic',
   },
   buttonSection: {
     alignItems: 'center',

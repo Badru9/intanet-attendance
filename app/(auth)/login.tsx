@@ -17,10 +17,8 @@ import {
   View,
 } from 'react-native';
 
-import { saveToken } from '@/utils/token';
+import { useAuth } from '@/contexts/authContext'; // Add AuthContext
 import { DESIGN_TOKENS } from '../../constants/designTokens'; // Import DESIGN_TOKENS
-import { login } from '../../services/auth';
-import { saveUser } from '../../utils/user';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -45,6 +43,7 @@ type FeatherIconName = 'mail' | 'lock' | 'eye' | 'eye-off' | 'loader';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { login: authLogin } = useAuth(); // Use AuthContext login
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -67,30 +66,7 @@ export default function LoginScreen() {
     new Animated.Value(DESIGN_TOKENS.spacing.xxl)
   ).current; // Use DESIGN_TOKENS
 
-  useEffect(() => {
-    startEntranceAnimation();
-  }, []);
-
-  const startSpinning = useCallback(() => {
-    spinValue.setValue(0);
-    Animated.loop(
-      Animated.timing(spinValue, {
-        toValue: 1,
-        duration: 1000,
-        useNativeDriver: true,
-      })
-    ).start();
-  }, [spinValue]);
-
-  useEffect(() => {
-    if (isLoading) {
-      startSpinning();
-    } else {
-      spinValue.stopAnimation();
-    }
-  }, [isLoading, spinValue, startSpinning]);
-
-  const startEntranceAnimation = (): void => {
+  const startEntranceAnimation = useCallback((): void => {
     Animated.sequence([
       Animated.parallel([
         Animated.timing(fadeAnim, {
@@ -124,7 +100,30 @@ export default function LoginScreen() {
         }),
       ]),
     ]).start();
-  };
+  }, [fadeAnim, scaleAnim, headerAnim, inputAnimRefs, buttonAnim]);
+
+  useEffect(() => {
+    startEntranceAnimation();
+  }, [startEntranceAnimation]);
+
+  const startSpinning = useCallback(() => {
+    spinValue.setValue(0);
+    Animated.loop(
+      Animated.timing(spinValue, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true,
+      })
+    ).start();
+  }, [spinValue]);
+
+  useEffect(() => {
+    if (isLoading) {
+      startSpinning();
+    } else {
+      spinValue.stopAnimation();
+    }
+  }, [isLoading, spinValue, startSpinning]);
 
   const animateButtonPress = (): void => {
     Animated.sequence([
@@ -189,26 +188,19 @@ export default function LoginScreen() {
 
     try {
       const payload: LoginPayload = { email, password };
-      const response: any = await login(payload);
-      console.log('Login response:', response);
 
-      if (response.success && response.user) {
-        await saveUser(response.user, response.access_token);
-        await saveToken(response.access_token);
+      // Use AuthContext login instead of direct API call
+      await authLogin(payload);
+      console.log('Login successful through AuthContext');
 
-        Animated.timing(scaleAnim, {
-          toValue: 1.02,
-          duration: 200,
-          useNativeDriver: true,
-        }).start(() => {
-          router.navigate('/home');
-        });
-      } else {
-        Alert.alert(
-          'Login Gagal',
-          response.message || 'Email atau password salah.'
-        );
-      }
+      // Navigate to home after successful login
+      Animated.timing(scaleAnim, {
+        toValue: 1.02,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(() => {
+        router.navigate('/home');
+      });
     } catch (error: unknown) {
       console.error('Login error:', error);
       Alert.alert(
