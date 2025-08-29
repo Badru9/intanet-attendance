@@ -81,15 +81,13 @@ const VALIDATION_RULES: ValidationRules = {
   },
   address: {
     required: 'Alamat diperlukan',
-    minLength: 10,
-    minLengthMessage: 'Alamat minimal 10 karakter',
+    minLength: 8,
+    minLengthMessage: 'Alamat minimal 8 karakter',
   },
   password: {
     required: 'Password diperlukan',
-    minLength: 8,
-    minLengthMessage: 'Password minimal 8 karakter',
-    pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
-    patternMessage: 'Password harus mengandung huruf besar, kecil, dan angka',
+    minLength: 6,
+    minLengthMessage: 'Password minimal 6 karakter',
   },
   confirmPassword: {
     required: 'Konfirmasi password diperlukan',

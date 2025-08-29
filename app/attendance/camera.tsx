@@ -194,8 +194,8 @@ export default function AttendanceCameraScreen() {
         setCapturedPhotoUri(photo.uri);
 
         // Cek ukuran file asli
-        const originalSize = await getFileSize(photo.uri);
-        setFileSizeInfo(`Original: ${formatFileSize(originalSize)}`);
+        // const originalSize = await getFileSize(photo.uri);
+        // setFileSizeInfo(`Original: ${formatFileSize(originalSize)}`);
 
         // Simpan data capture untuk digunakan nanti
         setCaptureData({
