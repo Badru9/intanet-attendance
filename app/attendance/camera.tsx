@@ -209,8 +209,8 @@ export default function AttendanceCameraScreen() {
               // Format: "Jalan Cicurug No. 59" atau "Jalan Cicurug 59"
               const streetNumber = address.streetNumber || address.name;
               if (
-                streetNumber.toLowerCase().includes('no.') ||
-                streetNumber.toLowerCase().includes('no ')
+                streetNumber!.toLowerCase().includes('no.') ||
+                streetNumber!.toLowerCase().includes('no ')
               ) {
                 addressParts.push(`${address.street} ${streetNumber}`);
               } else {
