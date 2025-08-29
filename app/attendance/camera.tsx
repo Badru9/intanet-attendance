@@ -33,6 +33,18 @@ const getCurrentTimeFormatted = () => {
   return `${hours}:${minutes}:${seconds}`;
 };
 
+// Fungsi untuk format tanggal
+const getCurrentDateFormatted = () => {
+  const now = new Date();
+  const options: Intl.DateTimeFormatOptions = {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  };
+  return now.toLocaleDateString('id-ID', options);
+};
+
 export default function AttendanceCameraScreen() {
   const router = useRouter();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -45,8 +57,14 @@ export default function AttendanceCameraScreen() {
   const [currentTime, setCurrentTime] = useState<string>(
     getCurrentTimeFormatted()
   );
+  const [currentDate, setCurrentDate] = useState<string>(
+    getCurrentDateFormatted()
+  );
   const [locationString, setLocationString] =
     useState<string>('Mencari lokasi...');
+  const [readableAddress, setReadableAddress] =
+    useState<string>('Mencari alamat...');
+  const [coordinates, setCoordinates] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [fileSizeInfo, setFileSizeInfo] = useState<string>('');
   const [isLocationReady, setIsLocationReady] = useState(false);
@@ -54,7 +72,10 @@ export default function AttendanceCameraScreen() {
   // State untuk menyimpan data saat foto diambil
   const [captureData, setCaptureData] = useState<{
     time: string;
+    date: string;
     location: string;
+    address: string;
+    coordinates: string;
   } | null>(null);
 
   const cameraRef = useRef<CameraView>(null);
@@ -78,10 +99,11 @@ export default function AttendanceCameraScreen() {
   }, []);
 
   useEffect(() => {
-    // Memperbarui waktu setiap detik hanya jika foto belum diambil
+    // Memperbarui waktu dan tanggal setiap detik hanya jika foto belum diambil
     if (!capturedPhotoUri) {
       timerRef.current = setInterval(() => {
         setCurrentTime(getCurrentTimeFormatted());
+        setCurrentDate(getCurrentDateFormatted());
       }, 1000) as number;
     } else {
       // Hentikan timer saat foto sudah diambil
@@ -145,21 +167,127 @@ export default function AttendanceCameraScreen() {
   const updateLocation = async () => {
     if (!locationPermission?.granted) {
       setLocationString('Izin lokasi tidak diberikan');
+      setReadableAddress('Alamat tidak tersedia');
+      setCoordinates('');
       setIsLocationReady(false);
       return;
     }
+
     try {
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.BestForNavigation,
+        timeInterval: 1000,
       });
+
       const { latitude, longitude } = location.coords;
+
+      // Set koordinat
+      const coordString = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      setCoordinates(coordString);
       setLocationString(
-        `Lat: ${latitude.toFixed(4)} \nLon: ${longitude.toFixed(4)}`
+        `Lat: ${latitude.toFixed(6)} \nLon: ${longitude.toFixed(6)}`
       );
+
+      // Dapatkan alamat yang mudah dibaca
+      try {
+        const reverseGeocode = await Location.reverseGeocodeAsync({
+          latitude,
+          longitude,
+        });
+
+        console.log('Reverse Geocode', reverseGeocode);
+
+        if (reverseGeocode && reverseGeocode.length > 0) {
+          const address = reverseGeocode[0];
+
+          // Format alamat sesuai standar Indonesia
+          const addressParts = [];
+
+          // 1. Jalan + Nomor (prioritas utama)
+          if (address.street) {
+            if (address.streetNumber || address.name) {
+              // Format: "Jalan Cicurug No. 59" atau "Jalan Cicurug 59"
+              const streetNumber = address.streetNumber || address.name;
+              if (
+                streetNumber.toLowerCase().includes('no.') ||
+                streetNumber.toLowerCase().includes('no ')
+              ) {
+                addressParts.push(`${address.street} ${streetNumber}`);
+              } else {
+                addressParts.push(`${address.street} No. ${streetNumber}`);
+              }
+            } else {
+              addressParts.push(address.street);
+            }
+          } else if (address.name && !address.name.match(/^\d+$/)) {
+            // Jika tidak ada street tapi ada name yang bukan hanya angka
+            addressParts.push(address.name);
+          }
+
+          // 2. Kelurahan/Desa
+          if (address.district) {
+            addressParts.push(address.district);
+          }
+
+          // 3. Kecamatan (dengan prefix "Kec." jika belum ada)
+          if (address.city) {
+            if (
+              address.city.toLowerCase().includes('kecamatan') ||
+              address.city.toLowerCase().includes('kec.')
+            ) {
+              addressParts.push(address.city);
+            } else {
+              addressParts.push(`Kec. ${address.city}`);
+            }
+          }
+
+          // 4. Kabupaten/Kota
+          if (address.subregion) {
+            addressParts.push(address.subregion);
+          }
+
+          // 5. Provinsi
+          if (address.region) {
+            addressParts.push(address.region);
+          }
+
+          // 6. Kode Pos (jika ada)
+          if (address.postalCode) {
+            addressParts.push(address.postalCode);
+          }
+
+          // Fallback jika tidak ada komponen yang berhasil diparse
+          if (addressParts.length === 0) {
+            if (address.formattedAddress) {
+              // Gunakan formatted address dan bersihkan sedikit
+              let cleanAddress = address.formattedAddress;
+              // Hapus "Indonesia" di akhir jika ada
+              cleanAddress = cleanAddress.replace(/, Indonesia$/, '');
+              setReadableAddress(cleanAddress);
+            } else {
+              setReadableAddress(
+                `${address.city || address.region || 'Lokasi tidak dikenal'}`
+              );
+            }
+          } else {
+            // Gabungkan dengan format standar Indonesia
+            const formattedAddress = addressParts.join(', ');
+            setReadableAddress(formattedAddress);
+          }
+        } else {
+          setReadableAddress('Alamat tidak dapat ditemukan');
+        }
+      } catch (reverseGeocodeError) {
+        console.error('Error reverse geocoding:', reverseGeocodeError);
+        setReadableAddress('Gagal mendapatkan alamat');
+      }
+
       setIsLocationReady(true);
     } catch (e) {
       console.error('Error saat mendapatkan lokasi:', e);
       setLocationString('Gagal mendapatkan lokasi.');
+      setReadableAddress('Alamat tidak tersedia');
+      setCoordinates('');
       setIsLocationReady(false);
     }
   };
@@ -182,8 +310,9 @@ export default function AttendanceCameraScreen() {
     }
     setIsReady(false);
     try {
-      // Ambil waktu dan lokasi tepat saat foto diambil
+      // Ambil waktu, tanggal, dan lokasi tepat saat foto diambil
       const captureTime = getCurrentTimeFormatted();
+      const captureDate = getCurrentDateFormatted();
       await updateLocation(); // Pastikan lokasi terbaru
 
       const photo = await cameraRef.current.takePictureAsync({
@@ -193,14 +322,13 @@ export default function AttendanceCameraScreen() {
       if (photo) {
         setCapturedPhotoUri(photo.uri);
 
-        // Cek ukuran file asli
-        // const originalSize = await getFileSize(photo.uri);
-        // setFileSizeInfo(`Original: ${formatFileSize(originalSize)}`);
-
         // Simpan data capture untuk digunakan nanti
         setCaptureData({
           time: captureTime,
+          date: captureDate,
           location: locationString,
+          address: readableAddress,
+          coordinates: coordinates,
         });
       }
     } catch (e) {
@@ -296,8 +424,9 @@ export default function AttendanceCameraScreen() {
     setFileSizeInfo('');
     setIsReady(true);
     setIsProcessing(false);
-    // Mulai lagi update waktu dan lokasi
+    // Mulai lagi update waktu, tanggal, dan lokasi
     setCurrentTime(getCurrentTimeFormatted());
+    setCurrentDate(getCurrentDateFormatted());
     updateLocation();
   };
 
@@ -365,27 +494,64 @@ export default function AttendanceCameraScreen() {
 
   const OverlayTimeLocation = () => (
     <View style={[styles.timeLocationOverlay]}>
-      <BlurView intensity={40} tint='dark' style={styles.infoBlur}>
-        <Text
-          style={{
-            ...styles.infoText,
-            fontSize: 20,
-            fontWeight: 'semibold',
-            marginBottom: 8,
-          }}
-        >
-          PT Intan Digital Internet ( INTANET )
+      <BlurView intensity={50} tint='dark' style={styles.infoBlur}>
+        {/* Nama Perusahaan */}
+        <Text style={styles.companyNameText}>PT Intan Digital Internet</Text>
+        <Text style={styles.companySubText}>(INTANET)</Text>
+
+        {/* Divider */}
+        <View style={styles.divider} />
+
+        {/* Tanggal */}
+        <View style={styles.infoRow}>
+          <Feather
+            name='calendar'
+            size={16}
+            color='#E5E7EB'
+            style={styles.infoIcon}
+          />
+          <Text style={styles.infoLabel}>Tanggal:</Text>
+        </View>
+        <Text style={styles.infoValue}>
+          {captureData ? captureData.date : currentDate}
         </Text>
-        <Text style={styles.infoText}>
+
+        {/* Waktu */}
+        <View style={styles.infoRow}>
+          <Feather
+            name='clock'
+            size={16}
+            color='#E5E7EB'
+            style={styles.infoIcon}
+          />
+          <Text style={styles.infoLabel}>Waktu:</Text>
+        </View>
+        <Text style={styles.infoValue}>
           {captureData ? captureData.time : currentTime}
         </Text>
-        <Text style={styles.infoText}>
-          {captureData ? captureData.location : locationString}
+
+        {/* Alamat */}
+        <View style={styles.infoRow}>
+          <Feather
+            name='map-pin'
+            size={16}
+            color='#E5E7EB'
+            style={styles.infoIcon}
+          />
+          <Text style={styles.infoLabel}>Lokasi:</Text>
+        </View>
+        <Text style={styles.infoValue}>
+          {captureData ? captureData.address : readableAddress}
         </Text>
+
+        {/* Koordinat (lebih kecil) */}
+        <Text style={styles.coordinatesText}>
+          {captureData ? captureData.coordinates : coordinates}
+        </Text>
+
+        {/* File size info jika ada */}
         {fileSizeInfo && (
-          <Text style={{ ...styles.infoText, fontSize: 14, marginTop: 4 }}>
-            {fileSizeInfo}
-          </Text>
+          <Text style={styles.fileSizeText}>{fileSizeInfo}</Text>
         )}
       </BlurView>
     </View>
@@ -596,31 +762,84 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
+  blurContainer: {
+    borderRadius: 50,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+  },
   timeLocationOverlay: {
     position: 'absolute',
     left: 16,
-    bottom: 200,
-    zIndex: 10,
-  },
-  blurContainer: {
-    borderRadius: 9999,
-    padding: 8,
-    overflow: 'hidden',
-  },
-  infoOverlay: {
-    position: 'absolute',
-    alignSelf: 'center',
+    bottom: 150,
+    right: 16,
     zIndex: 10,
   },
   infoBlur: {
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
     overflow: 'hidden',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
   },
-  infoText: {
-    color: '#FFF',
-    fontSize: 20,
+  companyNameText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 2,
+  },
+  companySubText: {
+    color: '#E5E7EB',
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    marginBottom: 12,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    marginTop: 8,
+  },
+  infoIcon: {
+    marginRight: 8,
+  },
+  infoLabel: {
+    color: '#E5E7EB',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  infoValue: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 24,
+    marginBottom: 4,
+  },
+  coordinatesText: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    fontWeight: '400',
+    marginLeft: 24,
+    marginTop: 4,
+    fontFamily: 'monospace',
+  },
+  fileSizeText: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    fontWeight: '400',
+    textAlign: 'center',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
   },
   captureButtonContainer: {
     position: 'absolute',
